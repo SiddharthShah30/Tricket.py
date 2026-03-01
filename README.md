@@ -5,6 +5,7 @@
 * [Usage](#usage)
 * [How to Play](#how-to-play)
 * [Game Mechanics](#game-mechanics)
+* [Teams](#teams)
 * [Tech Stack](#tech-stack)
 * [Contributing](#contributing)
 * [License](#license)
@@ -13,15 +14,18 @@
 
 ## Features
 
+* **10 international teams** with real player lineups
+* **Arrow key controls** — no typing mid-game, fully keyboard-driven
+* **Delivery-biased shot system** — bowling type influences how the computer bats
+* Named batsmen displayed at the crease (striker and non-striker)
+* Automatic batting rotation on odd runs and at end of overs
+* Live scoreboard with CRR, RRR, runs needed, and balls remaining
+* Over-by-over ball log displayed in real time
+* In-game **ESC pause** to take a breather
 * Coin toss with bat/bowl election
-* Two full innings with live scoreboard updates
-* Current Run Rate (CRR) and Required Run Rate (RRR) display
-* Over-by-over ball log tracking
-* Four batting shot types with randomised outcomes
-* Four bowling delivery types that influence batting results
-* Wide ball handling (score +1, ball not counted)
-* Animated text output for an immersive feel
-* Supports multiple over formats: 1, 5, 10, 20, and 50 overs
+* Tie detection alongside win/loss results
+* Animated text and timed output for an immersive feel
+* Supports **1, 5, 10, and 20 over** formats
 
 ---
 
@@ -36,7 +40,7 @@ cd tricket
 
 ### 2. Ensure Python is installed
 
-Python 3.6+ is sufficient — no external libraries are required.
+Python 3.6+ is required. No external libraries are needed.
 
 ```bash
 python --version
@@ -48,105 +52,157 @@ python --version
 python main.py
 ```
 
+> **Linux/macOS note:** Arrow key input uses `tty` and `termios` from the standard library — run in a proper terminal (not an IDE console) for best results.
+
 ---
 
 ## Usage
 
-On launch you will be asked to choose an over format:
+On launch, select your over format:
 
 ```
-Choose overs 1, 5, 10, 20, 50:
+Select overs (1 / 5 / 10 / 20):
 ```
 
-Enter one of the listed values to begin. The toss follows immediately.
+Then choose your team from the numbered list, call the toss, and play.
 
 ---
 
 ## How to Play
 
+### Team Selection
+
+Pick one of 10 international teams. The computer randomly selects its opponent from the remaining nine.
+
+---
+
 ### Toss
 
 ```
-Heads or Tails?
+Call Heads or Tails (H/T):
 ```
 
-Call it correctly to win the toss and choose to bat or bowl. Lose it and the computer decides.
+Win the toss and choose to **Bat** or **Bowl**. Lose it and the computer decides.
 
 ---
 
-### Batting (when you bat)
+### Batting Controls (when your team bats)
 
-Each ball you choose a shot:
+Use arrow keys to select your shot each ball:
 
-| Key | Shot    | Tendency                          |
-|-----|---------|-----------------------------------|
-| `S` | Swing   | Balanced — singles, twos, fours   |
-| `D` | Defend  | Safe — mostly dots and singles    |
-| `L` | Loft    | Aggressive — fours and sixes      |
-| `Q` | Leave   | Quit the game                     |
+| Key | Shot    | Tendency                              |
+|-----|---------|---------------------------------------|
+| `←` | Defend  | Safe — dots and singles, low risk     |
+| `→` | Swing   | Balanced — singles, twos, fours       |
+| `↑` | Loft    | Aggressive — fours and sixes, risky   |
+| `↓` | Leave   | Watchful — mostly dots, some wickets  |
 
-The computer secretly selects a delivery type each ball which influences your outcome probabilities.
+The computer bowls a random delivery type each ball, which does **not** affect your outcome when batting — your shot choice alone drives the result.
 
 ---
 
-### Bowling (when you bowl)
+### Bowling Controls (when your team bowls)
 
-Each ball you choose a delivery:
+Use arrow keys to select your delivery each ball:
 
-| Key | Delivery       |
-|-----|----------------|
-| `I` | In-Swing       |
-| `O` | Out-Swing      |
-| `R` | Reverse-Swing  |
-| `B` | Bouncer        |
+| Key | Delivery       | Effect on Computer's Batting          |
+|-----|----------------|---------------------------------------|
+| `←` | In-Swing       | Cramps the batsman — more dots/wickets, fewer boundaries |
+| `→` | Out-Swing      | Full ball — tempts drives, more runs  |
+| `↑` | Reverse-Swing  | Late movement — most wicket-prone     |
+| `↓` | Bouncer        | Short ball — tempts the pull, six or wicket |
 
-The computer randomly picks a shot in response. Swing deliveries increase the chance of a leave (dot or wicket). A bouncer can produce a wide ball.
+Your delivery biases the computer's shot selection, which then determines the outcome.
+
+---
+
+### Pause
+
+Press `ESC` at any point during ball selection to pause. Press `Enter` to resume.
 
 ---
 
 ### Scoreboard
 
-The live scoreboard shows:
-
 ```
-TEAM: 84/3 (10.2)      TARGET: 121
-CRR: 8.17      RRR: 7.44
-```
+  India: 142/4  (17.3 ov)      TARGET: 187
+  CRR: 8.23      RRR: 9.18
+  Need 45 run(s) in 15 ball(s)
 
-- **Score / Wickets (Overs.Balls)**
-- **CRR** — Current Run Rate
-- **RRR** — Required Run Rate (second innings only)
-- **THIS OVER** — Ball-by-ball log for the current over, e.g. `[4] [0] [W] [1] [6]`
+  BATTING : India
+  BOWLING : Australia
+
+  STRIKER     : Shreyas Iyer
+  NON-STRIKER : Hardik Pandya
+
+  THIS OVER   : 1 4 0 W 6
+```
 
 ---
 
 ## Game Mechanics
 
-### Batting Outcome Probabilities
+### Delivery → Shot Bias (when you bowl)
 
-| Shot    | 0   | 1   | 2   | 4   | 6   | W   |
-|---------|-----|-----|-----|-----|-----|-----|
-| Defend  | 60% | 30% | —   | —   | —   | 10% |
-| Swing   | 20% | 25% | 25% | 20% | —   | 10% |
-| Loft    | 15% | —   | —   | 40% | 30% | 15% |
-| Leave vs Swing | 85% | — | — | — | — | 15% |
-| Leave vs Bouncer | 70% | — | — | — | — | 30% (WD) |
+Each delivery type shifts the probability of the computer choosing a particular shot:
 
-A **Wide** (`WD`) adds 1 run to the batting team's total without consuming a ball.
+| Delivery      | DEFEND | SWING | LOFT | LEAVE |
+|---------------|--------|-------|------|-------|
+| In-Swing      | 55%    | 20%   | 5%   | 20%   |
+| Out-Swing     | 15%    | 50%   | 20%  | 15%   |
+| Reverse-Swing | 20%    | 15%   | 10%  | 55%   |
+| Bouncer       | 10%    | 20%   | 55%  | 15%   |
+
+### Shot → Outcome Probabilities
+
+| Shot   | 0   | 1   | 2   | 4   | 6   | W   |
+|--------|-----|-----|-----|-----|-----|-----|
+| Defend | 60% | 30% | —   | —   | —   | 10% |
+| Swing  | 20% | 25% | 25% | 20% | —   | 10% |
+| Loft   | 15% | —   | —   | 40% | 30% | 15% |
+| Leave  | 85% | —   | —   | —   | —   | 15% |
+
+### Batting Rotation
+
+* Batsmen swap ends on every **odd run** (1, 3)
+* Batsmen swap ends at the **end of each over**
+* On a wicket, the next batsman in the lineup takes the striker's position
 
 ### Innings End Conditions
 
-An innings ends when any of the following occur:
+An innings ends when any of these occur:
+
 * All allocated balls are bowled
 * 10 wickets fall
 * The target is reached (second innings only)
 
 ---
 
+## Teams
+
+| Team          | Notable Players                                    |
+|---------------|----------------------------------------------------|
+| India         | Rohit Sharma, Virat Kohli, Jasprit Bumrah          |
+| Australia     | Steve Smith, Pat Cummins, Mitchell Starc           |
+| England       | Ben Stokes, Jos Buttler, Jofra Archer              |
+| New Zealand   | Kane Williamson, Trent Boult, Tim Southee          |
+| South Africa  | Kagiso Rabada, Quinton de Kock, David Miller       |
+| Pakistan      | Babar Azam, Shaheen Afridi, Mohammad Rizwan        |
+| Sri Lanka     | Wanindu Hasaranga, Pathum Nissanka, Kusal Mendis   |
+| West Indies   | Andre Russell, Nicholas Pooran, Alzarri Joseph     |
+| Bangladesh    | Shakib Al Hasan, Taskin Ahmed, Litton Das          |
+| Afghanistan   | Rashid Khan, Mujeeb Ur Rahman, Ibrahim Zadran      |
+
+Each team has a full 11-player lineup. Batsmen are shown by name at the crease and rotate through the batting order as wickets fall.
+
+---
+
 ## Tech Stack
 
 * **Python 3.6+**
-* **Standard library only** — `random`, `os`, `time`
+* **Standard library only** — `os`, `sys`, `random`, `time`, `tty`, `termios` (Linux/macOS), `msvcrt` (Windows)
+
+Cross-platform arrow key input is handled natively — no external packages required.
 
 ---
 
@@ -159,7 +215,7 @@ Contributions are welcome.
 3. Commit your changes
 4. Open a pull request
 
-Ideas for improvement: player/team naming, innings scorecard summary, difficulty levels, or a high-score leaderboard.
+Ideas for improvement: innings scorecard with individual batting figures, bowling figures, player stamina/form ratings, tournament/series mode, or a difficulty setting that adjusts computer shot selection.
 
 ---
 
