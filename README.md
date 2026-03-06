@@ -1,4 +1,4 @@
-# 🏏 CLI Cricket Simulator
+# Triket Simulator
 
 A fully-featured, terminal-based cricket simulation game written in Python. Play international matches across 5, 10, or 20-over formats with real player rosters, dynamic pitch and weather conditions, a DRS system, confidence mechanics, and full scorecards — all from your command line.
 
