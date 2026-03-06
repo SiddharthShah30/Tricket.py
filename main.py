@@ -81,7 +81,6 @@ TEAMS = {
 }
 
 def short(name):
-    """V. Kohli style short name."""
     parts = name.split()
     if len(parts) >= 2:
         return parts[0][0] + ". " + " ".join(parts[1:])
@@ -208,20 +207,20 @@ def get_stat(player, key, default=50):
     return PLAYER_STATS.get(player, {}).get(key, default)
 
 # =========================
-# PITCH & WEATHER
+# PITCH & WEATHER  (halved modifiers to reduce swing)
 # =========================
 
 PITCH_TYPES = {
-    "Flat":      {"pace_mod": -0.10, "spin_mod": -0.15, "bat_mod": +0.15},
-    "Green Top": {"pace_mod": +0.20, "spin_mod": -0.10, "bat_mod": -0.10},
-    "Dusty":     {"pace_mod": -0.10, "spin_mod": +0.20, "bat_mod": -0.10},
-    "Slow":      {"pace_mod": -0.05, "spin_mod": +0.10, "bat_mod": -0.05},
+    "Flat":      {"pace_mod": -0.05, "spin_mod": -0.08, "bat_mod": +0.10},
+    "Green Top": {"pace_mod": +0.10, "spin_mod": -0.05, "bat_mod": -0.05},
+    "Dusty":     {"pace_mod": -0.05, "spin_mod": +0.10, "bat_mod": -0.05},
+    "Slow":      {"pace_mod": -0.03, "spin_mod": +0.05, "bat_mod": -0.03},
 }
 WEATHER_CONDITIONS = {
-    "Sunny":    {"swing_mod": -0.10},
-    "Overcast": {"swing_mod": +0.20},
-    "Humid":    {"swing_mod": +0.10},
-    "Windy":    {"swing_mod": +0.05},
+    "Sunny":    {"swing_mod": -0.05},
+    "Overcast": {"swing_mod": +0.10},
+    "Humid":    {"swing_mod": +0.06},
+    "Windy":    {"swing_mod": +0.03},
 }
 
 # =========================
@@ -263,36 +262,75 @@ COMMENTARY = {
 }
 
 TIPS = [
-    "Timing is everything! Use [S]wing for power and [D]efend for survival.",
+    "Timing is everything! Use [→] Swing for power and [←] Defend for survival.",
     "Pace bowlers thrive on Green Top pitches.",
     "Spinners love a Dusty track — dangerous in the death overs.",
     "A maiden over builds pressure. Bowl tight lines!",
     "Use DRS wisely — you only get one review per innings.",
     "Overcast conditions? Swing bowlers will be lethal.",
-    "The first 6 balls for a new batter are the most dangerous.",
+    "The longer a batter stays in, the harder they are to dismiss!",
     "Partnership building is key. Don't throw wickets away early.",
 ]
 
-DISMISSAL_METHODS = [
-    "c. {fielder} b. {bowler}",
-    "lbw b. {bowler}",
-    "b. {bowler}",
-    "c. {fielder} b. {bowler}",
-    "run out ({fielder})",
-    "st. {wk} b. {bowler}",
+# Dismissal types grouped by whether DRS is allowed and who gets the wicket credit
+# DRS_ELIGIBLE: only LBW and caught-behind (edge) can be reviewed by batting team
+DISMISSAL_DRS = [
+    ("lbw b. {bowler}",           "bowler",  True),   # LBW — DRS allowed
+    ("c. {wk} b. {bowler}",       "bowler",  True),   # caught behind/edge — DRS allowed
+]
+DISMISSAL_NO_DRS = [
+    ("b. {bowler}",               "bowler",  False),  # bowled — umpire's call, no DRS
+    ("c. {fielder} b. {bowler}",  "bowler",  False),  # caught in field — no DRS
+    ("c. {fielder} b. {bowler}",  "bowler",  False),  # caught in field — no DRS
+    ("st. {wk} b. {bowler}",      "bowler",  False),  # stumped — no DRS
+    ("run out ({fielder})",       "fielder", False),  # run out — no bowler credit, no DRS
 ]
 
-BOWL_SHOT_BIAS = {
-    "IN":      [55, 20,  5, 20],
-    "OUT":     [15, 50, 20, 15],
-    "REVERSE": [20, 15, 10, 55],
-    "BOUNCER": [10, 20, 55, 15],
+def pick_dismissal(delivery):
+    """
+    Pick a dismissal type appropriate to the delivery.
+    Returns (dis_template, credit, drs_eligible).
+    credit = 'bowler' or 'fielder'.
+    """
+    # Deliveries that favour edge/LBW chances
+    if delivery in ("OUT", "IN", "LEG_SPIN", "OFF_SPIN"):
+        # Higher chance of LBW or edge
+        pool = DISMISSAL_DRS + DISMISSAL_NO_DRS[:3]
+    elif delivery in ("BOUNCER",):
+        # Short ball — mostly caught in the deep, no edge/LBW
+        pool = [DISMISSAL_NO_DRS[1], DISMISSAL_NO_DRS[2]]
+    elif delivery in ("YORKER", "FLIPPER"):
+        # Yorker/flipper — mostly bowled
+        pool = [("b. {bowler}", "bowler", False)] * 3 + DISMISSAL_DRS[:1]
+    else:
+        pool = DISMISSAL_DRS + DISMISSAL_NO_DRS
+    return random.choice(pool)
+
+# Delivery bias → [DEFEND, SWING, LOFT, LEAVE] for computer batter
+PACE_SHOT_BIAS = {
+    "IN":      [55, 20,  5, 20],   # cramps batter on the pads
+    "OUT":     [15, 50, 20, 15],   # full, invites the drive
+    "YORKER":  [40, 30,  5, 25],   # hard to score, lots of dots
+    "BOUNCER": [10, 20, 55, 15],   # short ball, tempts the pull
 }
+SPIN_SHOT_BIAS = {
+    "OFF_SPIN": [45, 25, 15, 15],  # turns in, batter defends or drives
+    "LEG_SPIN": [30, 35, 20, 15],  # more temptation to drive
+    "FLIPPER":  [50, 20, 10, 20],  # skids through, hard to score
+    "GOOGLY":   [25, 20, 20, 35],  # mystery ball, batter often leaves
+}
+
+def get_shot_bias(delivery):
+    if delivery in PACE_SHOT_BIAS:
+        return PACE_SHOT_BIAS[delivery]
+    return SPIN_SHOT_BIAS.get(delivery, [40, 25, 15, 20])
+
+# ── REBALANCED BASE WEIGHTS — lower wicket base rates ─────────────────────
 SHOT_OUTCOMES = {
-    "DEFEND": ([0, 1, "W"],        [60, 30, 10]),
-    "SWING":  ([0, 1, 2, 4, "W"], [20, 25, 25, 20, 10]),
-    "LOFT":   ([0, 4, 6, "W"],    [15, 40, 30, 15]),
-    "LEAVE":  ([0, "W"],           [85, 15]),
+    "DEFEND": ([0, 1, "W"],        [65, 32,  3]),
+    "SWING":  ([0, 1, 2, 4, "W"], [22, 28, 24, 20,  6]),
+    "LOFT":   ([0, 4, 6, "W"],    [18, 38, 32, 12]),
+    "LEAVE":  ([0, "W"],           [92,  8]),
 }
 
 # =========================
@@ -359,7 +397,7 @@ def get_key():
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 # =========================
-# HEADER  (kept unchanged)
+# HEADER
 # =========================
 
 def print_header():
@@ -375,7 +413,7 @@ def print_header():
     print("=" * 78)
 
 # =========================
-# MAIN MENU  (Image 1)
+# MAIN MENU
 # =========================
 
 def main_menu():
@@ -465,7 +503,7 @@ def setup_conditions():
         "Dusty": "Spinners in paradise!",
         "Slow": "Hard to time the ball.",
         "Sunny": "Clear skies.",
-        "Overcast": "Swing bowlers beware!",
+        "Overcast": "Swing bowlers will be dangerous!",
         "Humid": "Some extra movement expected.",
         "Windy": "Gusty conditions at the ground.",
     }
@@ -531,38 +569,143 @@ def pick_bowler(bowling_team, bowler_overs, max_quota, last_bowler=None):
     return random.choices(eligible, skills)[0]
 
 # =========================
-# OUTCOME ENGINE
+# USER BOWLER SELECTION SCREEN
 # =========================
 
-def compute_outcome(shot, batter, bowler, pitch, weather, bat_balls, bowl_balls):
+def user_pick_bowler(bowling_team, bowler_overs, bowler_stats, max_quota,
+                     last_bowler, over_num):
+    """Show a selection screen so the user chooses who bowls the next over."""
+    lineup = TEAMS[bowling_team]
+
+    # Build candidate list respecting quota and consecutive-over rule
+    candidates = []
+    for p in lineup:
+        btype    = get_stat(p, "bowl_type", "bat")
+        ov_done  = bowler_overs.get(p, 0)
+        if btype == "bat":         continue   # pure batters can't bowl
+        if p == last_bowler:       continue   # can't bowl two overs in a row
+        if ov_done >= max_quota:   continue   # quota reached
+        candidates.append(p)
+
+    # Safety fallbacks
+    if not candidates:
+        candidates = [p for p in lineup
+                      if get_stat(p,"bowl_type") != "bat" and p != last_bowler]
+    if not candidates:
+        candidates = [p for p in lineup if p != last_bowler]
+    if not candidates:
+        candidates = lineup[:]
+
+    type_icon = {"pace": "⚡ PACE", "spin": "🌀 SPIN",
+                 "medium": "〰 MED", "bat": "🏏 BAT"}
+
+    clear()
+    print_header()
+    print(f"\n  === OVER {over_num} — CHOOSE YOUR BOWLER ===\n")
+    print(f"  {'#':<4} {'BOWLER':<22} {'TYPE':<10} {'OV DONE':<10} {'REMAINING':<12} {'SPELL'}")
+    print("  " + "─" * 68)
+
+    for i, p in enumerate(candidates, 1):
+        btype    = get_stat(p, "bowl_type", "bat")
+        ov_done  = bowler_overs.get(p, 0)
+        remaining = max_quota - ov_done
+        bst       = bowler_stats.get(p, {"balls": 0, "runs": 0, "wickets": 0})
+        ov_str    = f"{bst['balls']//6}.{bst['balls']%6}"
+        spell     = f"{bst['runs']}-{bst['wickets']} ({ov_str})"
+        tlabel    = type_icon.get(btype, btype.upper())
+        print(f"  [{i}]  {short(p):<22} {tlabel:<10} {ov_done:<10} {remaining} left         {spell}")
+
+    print()
+    while True:
+        try:
+            c = int(input(f"  >> SELECT BOWLER [1-{len(candidates)}]: "))
+            if 1 <= c <= len(candidates):
+                chosen = candidates[c - 1]
+                animate(f"\n  {short(chosen)} will bowl over {over_num}.")
+                pause(0.5)
+                return chosen
+            else:
+                print(f"  Enter a number between 1 and {len(candidates)}.")
+        except ValueError:
+            print("  Invalid input.")
+
+
+# =========================
+# OUTCOME ENGINE
+# ─────────────────────────
+# CONFIDENCE MECHANIC
+# Every ball a batter faces builds their confidence.
+#   0–5 balls  : danger zone — extra wicket risk, subdued scoring
+#   6–15 balls : settling in — nervousness fading
+#   16–30 balls: set batter — scoring freely, hard to dismiss
+#   31+ balls  : dominant — very hard to dismiss, scoring prolifically
+# =========================
+
+def compute_outcome(shot, batter, bowler, delivery, pitch, weather,
+                    bat_balls_faced, bowl_balls):
     outcomes, base_w = SHOT_OUTCOMES[shot]
     weights = list(base_w)
-    bat_skill  = get_stat(batter,"bat_skill",50) / 100.0
-    aggression = min(get_stat(batter,"aggression",80),108) / 100.0
-    bowl_skill = get_stat(bowler,"bowl_skill",50) / 100.0
-    bowl_type  = get_stat(bowler,"bowl_type","medium")
-    pm         = PITCH_TYPES.get(pitch,{})
-    pace_mod   = pm.get("pace_mod",0)
-    spin_mod   = pm.get("spin_mod",0)
-    bat_mod    = pm.get("bat_mod",0)
-    swing_m    = WEATHER_CONDITIONS.get(weather,{}).get("swing_mod",0)
-    stamina    = get_stat(bowler,"stamina",80)/100.0
-    fatigue    = min(0.15, max(0,(bowl_balls-24)*0.005/stamina)) if bowl_balls>24 else 0
-    nerves     = max(0,(6-bat_balls)*0.015)
+
+    bat_skill  = get_stat(batter, "bat_skill",  50) / 100.0
+    aggression = min(get_stat(batter, "aggression", 80), 108) / 100.0
+    bowl_skill = get_stat(bowler,  "bowl_skill", 50) / 100.0
+    # Derive bowl_type from the actual delivery chosen (pace vs spin)
+    if delivery in PACE_SHOT_BIAS:
+        bowl_type = "pace"
+    elif delivery in SPIN_SHOT_BIAS:
+        bowl_type = "spin"
+    else:
+        bowl_type = get_stat(bowler, "bowl_type", "medium")
+
+    pm       = PITCH_TYPES.get(pitch, {})
+    pace_mod = pm.get("pace_mod", 0)
+    spin_mod = pm.get("spin_mod", 0)
+    bat_mod  = pm.get("bat_mod",  0)
+    swing_m  = WEATHER_CONDITIONS.get(weather, {}).get("swing_mod", 0)
+
+    # Softer fatigue — only kicks in after 30 balls
+    stamina = get_stat(bowler, "stamina", 80) / 100.0
+    fatigue = min(0.08, max(0, (bowl_balls - 30) * 0.003 / stamina)) \
+              if bowl_balls > 30 else 0
+
+    # ── CONFIDENCE MECHANIC ───────────────────────────────────────────
+    if bat_balls_faced < 6:
+        # New batter: nervous, wicket danger up, scoring down
+        confidence_w_mod   = 1.0 + (6 - bat_balls_faced) * 0.08   # max +48%
+        confidence_run_mod = max(0.65, 1.0 - (6 - bat_balls_faced) * 0.05)
+    elif bat_balls_faced < 16:
+        # Settling: linearly reducing wicket danger back to baseline
+        confidence_w_mod   = max(0.75, 1.0 - (bat_balls_faced - 6) * 0.025)
+        confidence_run_mod = 1.0
+    elif bat_balls_faced < 31:
+        # Set batter: noticeably harder to dismiss, scores more freely
+        confidence_w_mod   = max(0.45, 0.75 - (bat_balls_faced - 16) * 0.02)
+        confidence_run_mod = 1.0 + (bat_balls_faced - 16) * 0.012
+    else:
+        # Dominant: very hard to remove, scoring prolifically
+        confidence_w_mod   = max(0.25, 0.45 - (bat_balls_faced - 31) * 0.004)
+        confidence_run_mod = min(1.45, 1.22 + (bat_balls_faced - 31) * 0.005)
+
+    # ── APPLY WEIGHTS ─────────────────────────────────────────────────
     for i, o in enumerate(outcomes):
         if o == "W":
-            pitch_bonus = pace_mod if bowl_type=="pace" else spin_mod
-            weights[i] *= (1 + bowl_skill*0.4 + pitch_bonus + swing_m - fatigue + nerves*0.5)
-        elif isinstance(o,int) and o >= 4:
-            weights[i] *= max(0.3,(aggression*bat_skill+bat_mod)*(1-bowl_skill*0.3))
-        elif isinstance(o,int) and o > 0:
-            weights[i] *= (bat_skill*0.8 + bat_mod*0.5)
+            pitch_bonus = pace_mod if bowl_type == "pace" else spin_mod
+            weights[i] *= (1 + bowl_skill * 0.25 + pitch_bonus
+                           + swing_m - fatigue) * confidence_w_mod
+        elif isinstance(o, int) and o >= 4:
+            weights[i] *= max(0.4,
+                (aggression * bat_skill + bat_mod)
+                * (1 - bowl_skill * 0.20)
+                * confidence_run_mod)
+        elif isinstance(o, int) and o > 0:
+            weights[i] *= (bat_skill * 0.75 + bat_mod * 0.4) * confidence_run_mod
         elif o == 0:
-            weights[i] *= (1 + bowl_skill*0.3 - bat_skill*0.2)
-    return random.choices(outcomes, [max(0.01,w) for w in weights])[0]
+            weights[i] *= max(0.5, 1 + bowl_skill * 0.20 - bat_skill * 0.15)
+
+    return random.choices(outcomes, [max(0.01, w) for w in weights])[0]
 
 # =========================
-# PLAY SCREEN  (Image 2)
+# PLAY SCREEN
 # =========================
 
 def render_play_screen(batting_team, bowling_team, score, wickets, overs,
@@ -572,25 +715,23 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
                        pitch, weather, target=None, free_hit=False):
     cur_ov = balls // 6
     cur_bl = balls % 6
-    crr    = round((score/balls)*6, 2) if balls > 0 else 0.00
+    crr    = round((score / balls) * 6, 2) if balls > 0 else 0.00
     total  = overs * 6
 
     clear()
     print_header()
 
-    # ── TOP SCORE BAR ──────────────────────────────────────────────────
     left = f"  {batting_team}: {score}/{wickets} ({cur_ov}.{cur_bl})"
     if target is not None:
         balls_left = total - balls
         runs_left  = target - score
-        rrr = round((runs_left/balls_left)*6,2) if balls_left > 0 else 0.00
+        rrr = round((runs_left / balls_left) * 6, 2) if balls_left > 0 else 0.00
         right = f"TARGET: {target}  (RR: {crr:.2f}, RRR: {rrr:.2f})  "
     else:
         right = f"RR: {crr:.2f}  "
     draw_box([left.ljust(40) + right.rjust(34)])
     print()
 
-    # ── BATTING LEFT / BOWLING RIGHT ───────────────────────────────────
     inn_lbl  = f"BATTING: {batting_team} (Innings {innings_num})"
     bowl_lbl = f"BOWLING: {bowling_team}"
     print(f"  {inn_lbl:<38}  {bowl_lbl}")
@@ -600,11 +741,11 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
     s_b  = batter_balls.get(striker, 0)
     ns_r = batter_runs.get(non_striker, 0)
     ns_b = batter_balls.get(non_striker, 0)
-    bst  = bowler_stats.get(current_bowler, {"balls": 0, "runs": 0, "wickets": 0})
+    bst  = bowler_stats.get(current_bowler,
+                             {"balls": 0, "runs": 0, "wickets": 0})
 
-    # Bowler spell shown as:  J. Bumrah  35-3 (4.0)
-    bow_balls = bst.get("balls", 0)
-    bow_runs  = bst.get("runs", 0)
+    bow_balls = bst.get("balls",   0)
+    bow_runs  = bst.get("runs",    0)
     bow_wkts  = bst.get("wickets", 0)
     bow_ov    = f"{bow_balls // 6}.{bow_balls % 6}"
     bow_spell = f"{bow_runs}-{bow_wkts} ({bow_ov})"
@@ -617,12 +758,10 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
           f"     OVER:    {over_sym}")
     print()
 
-    # ── THIS OVER BOX ──────────────────────────────────────────────────
     balls_fmt = "  ".join(f"[ {s} ]" for s in over_log) if over_log else "[ - ]"
     draw_box([f"  THIS OVER:  {balls_fmt}"])
     print()
 
-    # ── CHASE / PARTNERSHIP INFO ───────────────────────────────────────
     if target is not None:
         runs_left  = target - score
         balls_left = total - balls
@@ -636,39 +775,44 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
     print("-" * 78)
 
 # =========================
-# INNINGS SUMMARY SCREEN  (Image 3)
+# INNINGS SUMMARY
+# Called immediately when an innings ends — before returning to main().
+# For innings 1: shows the chase target box and waits for Enter.
+# For innings 2: shows "PRESS ENTER TO SEE FINAL RESULT" and waits.
 # =========================
 
-def show_innings_summary(batting_team, bowling_team, score, wickets, balls,
+def show_innings_summary(batting_team, score, wickets, balls,
                          overs, extras_detail, batter_runs, batter_balls,
                          batter_fours, batter_sixes, batter_dismissal,
-                         bowler_stats, lineup, target=None):
+                         bowler_stats, lineup, is_first_innings, first_innings_score=0):
     clear()
     print_header()
 
-    crr    = round((score/balls)*6, 2) if balls > 0 else 0.00
-    ov_str = f"{balls//6}.{balls%6}"
-    w_cnt  = extras_detail.get("w",0)
-    lb_cnt = extras_detail.get("lb",0)
-    nb_cnt = extras_detail.get("nb",0)
+    crr     = round((score / balls) * 6, 2) if balls > 0 else 0.00
+    ov_str  = f"{balls // 6}.{balls % 6}"
+    w_cnt   = extras_detail.get("w",  0)
+    lb_cnt  = extras_detail.get("lb", 0)
+    nb_cnt  = extras_detail.get("nb", 0)
     total_x = w_cnt + lb_cnt + nb_cnt
 
-    # Top box (Image 3 style)
     draw_box([
-        f"  INNINGS COMPLETE: {batting_team}".ljust(38) + f"TOTAL: {score}/{wickets} ({ov_str} Overs)".rjust(36),
-        f"  RUN RATE: {crr:.2f}".ljust(38) + f"EXTRAS: {total_x} (w{w_cnt}, lb{lb_cnt}, nb{nb_cnt})".rjust(36),
+        f"  INNINGS COMPLETE: {batting_team}".ljust(38)
+            + f"TOTAL: {score}/{wickets} ({ov_str} Overs)".rjust(36),
+        f"  RUN RATE: {crr:.2f}".ljust(38)
+            + f"EXTRAS: {total_x} (w{w_cnt}, lb{lb_cnt}, nb{nb_cnt})".rjust(36),
     ])
     print()
 
-    # ── BATTING SUMMARY ────────────────────────────────────────────────
+    # Batting summary
     print("  BATTING SUMMARY" + " " * 35 + "S/R")
     print("  " + "-" * 74)
     shown = 0
     for i, name in enumerate(lineup):
         r = batter_runs.get(i, 0)
         b = batter_balls.get(i, 0)
-        if b == 0 and i > wickets: continue
-        sr   = round((r/b)*100,1) if b > 0 else 0.0
+        if b == 0 and i > wickets:
+            continue
+        sr   = round((r / b) * 100, 1) if b > 0 else 0.0
         dis  = batter_dismissal.get(i, "not out")
         f4   = batter_fours.get(i, 0)
         s6   = batter_sixes.get(i, 0)
@@ -679,21 +823,25 @@ def show_innings_summary(batting_team, bowling_team, score, wickets, balls,
         print("  (no batters recorded)")
     print()
 
-    # ── BOWLING SUMMARY ────────────────────────────────────────────────
-    print("  BOWLING SUMMARY" + " " * 8 +
-          "O".rjust(5) + "M".rjust(5) + "R".rjust(5) + "W".rjust(5) + "  ECON")
+    # Bowling summary
+    print("  BOWLING SUMMARY"
+          + "O".rjust(13) + "M".rjust(5) + "R".rjust(5)
+          + "W".rjust(5) + "  ECON")
     print("  " + "-" * 62)
     for bname, bst in bowler_stats.items():
-        if bst["balls"] == 0: continue
-        ov  = f"{bst['balls']//6}.{bst['balls']%6}"
-        eco = round((bst["runs"]/bst["balls"])*6,2) if bst["balls"]>0 else 0.00
+        if bst["balls"] == 0:
+            continue
+        ov  = f"{bst['balls'] // 6}.{bst['balls'] % 6}"
+        eco = round((bst["runs"] / bst["balls"]) * 6, 2) \
+              if bst["balls"] > 0 else 0.00
         print(f"  {short(bname):<20}  {ov:>5}  {bst['maidens']:>3}  "
               f"{bst['runs']:>4}  {bst['wickets']:>4}  {eco:>7.2f}")
     print()
 
-    # ── TARGET BOX (Image 3) ───────────────────────────────────────────
-    if target is not None:
-        rrr = round((target / (overs*6)) * 6, 2)
+    if is_first_innings:
+        # Show the target the chasing team needs
+        target = score + 1
+        rrr    = round((target / (overs * 6)) * 6, 2)
         draw_box(["",
                   f"   TARGET: {target} RUNS TO WIN  (REQUIRED RATE: {rrr:.2f})",
                   ""])
@@ -701,7 +849,7 @@ def show_innings_summary(batting_team, bowling_team, score, wickets, balls,
         input(">> PRESS [ENTER] TO START THE CHASE...")
     else:
         print()
-        input(">> PRESS [ENTER] TO CONTINUE...")
+        input(">> PRESS [ENTER] TO SEE FINAL RESULT...")
 
 # =========================
 # INNINGS ENGINE
@@ -724,22 +872,28 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
     batter_sixes     = {i: 0 for i in range(11)}
     batter_dismissal = {}
 
-    bowler_stats = {}
-    bowler_overs = {}
-    last_bowler  = None
-    max_quota    = max(1, overs // 5)
-    current_bowler = pick_bowler(bowling_team, bowler_overs, max_quota)
+    bowler_stats   = {}
+    bowler_overs   = {}
+    last_bowler    = None
+    max_quota      = max(1, overs // 5)
+    if not user_is_batting:
+        current_bowler = user_pick_bowler(bowling_team, bowler_overs, {},
+                                          max_quota, None, 1)
+    else:
+        current_bowler = pick_bowler(bowling_team, bowler_overs, max_quota)
 
     extras_detail    = {"w": 0, "lb": 0, "nb": 0}
     partnership_runs = 0
     free_hit         = False
     user_drs         = 1
-    play_innings._comp_drs = 1  # computer's DRS review for this innings
+    play_innings._comp_drs = 1
 
     def ensure_bowler(name):
         if name not in bowler_stats:
-            bowler_stats[name] = {"balls":0,"runs":0,"wickets":0,
-                                   "maidens":0,"over_runs":[]}
+            bowler_stats[name] = {
+                "balls": 0, "runs": 0, "wickets": 0,
+                "maidens": 0, "over_runs": []
+            }
 
     ensure_bowler(current_bowler)
 
@@ -749,7 +903,6 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
 
         bst = bowler_stats[current_bowler]
 
-        # ── RENDER ────────────────────────────────────────────────────
         render_play_screen(
             batting_team, bowling_team, score, wickets, overs, balls,
             innings_num, lineup, striker, non_striker,
@@ -757,116 +910,148 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
             over_log, partnership_runs, pitch, weather, target, free_hit
         )
 
-        # ── COMMAND BAR ───────────────────────────────────────────────
+        # Show correct commands based on current bowler type
+        b_type = get_stat(current_bowler, "bowl_type", "medium")
         if user_is_batting:
             print("  COMMANDS: [←] Defend  |  [→] Swing  |  [↑] Loft  |  [↓] Leave")
         else:
-            print("  COMMANDS: [←] In-swing  |  [→] Out-swing  |  [↑] Reverse  |  [↓] Bouncer")
+            if b_type == "spin":
+                print("  COMMANDS: [←] Off-spin  |  [→] Leg-spin  |  [↑] Flipper  |  [↓] Googly")
+            else:
+                print("  COMMANDS: [←] In-swing  |  [→] Out-swing  |  [↑] Yorker  |  [↓] Bouncer")
         print("-" * 78)
 
-        # ── INPUT ─────────────────────────────────────────────────────
+        # Input
         shot = delivery = None
         if user_is_batting:
             while shot is None:
                 k = get_key()
-                if   k in ("S","RIGHT"): shot = "SWING"
-                elif k in ("D","LEFT"):  shot = "DEFEND"
-                elif k in ("L","UP"):    shot = "LOFT"
-                elif k in ("Q","DOWN"):  shot = "LEAVE"
-            delivery = random.choice(["IN","OUT","REVERSE","BOUNCER"])
+                if   k in ("S", "RIGHT"): shot = "SWING"
+                elif k in ("D", "LEFT"):  shot = "DEFEND"
+                elif k in ("L", "UP"):    shot = "LOFT"
+                elif k in ("Q", "DOWN"):  shot = "LEAVE"
+            # Computer bowler picks delivery based on their type
+            if b_type == "spin":
+                delivery = random.choice(["OFF_SPIN", "LEG_SPIN", "FLIPPER", "GOOGLY"])
+            else:
+                delivery = random.choice(["IN", "OUT", "YORKER", "BOUNCER"])
         else:
-            while delivery is None:
-                k = get_key()
-                if   k in ("I","LEFT"):    delivery = "IN"
-                elif k in ("O","RIGHT"):   delivery = "OUT"
-                elif k in ("R","UP"):      delivery = "REVERSE"
-                elif k in ("B","DOWN"):    delivery = "BOUNCER"
-            shot = random.choices(["DEFEND","SWING","LOFT","LEAVE"],
-                                   BOWL_SHOT_BIAS[delivery])[0]
+            if b_type == "spin":
+                while delivery is None:
+                    k = get_key()
+                    if   k in ("LEFT",):  delivery = "OFF_SPIN"
+                    elif k in ("RIGHT",): delivery = "LEG_SPIN"
+                    elif k in ("UP",):    delivery = "FLIPPER"
+                    elif k in ("DOWN",):  delivery = "GOOGLY"
+            else:
+                while delivery is None:
+                    k = get_key()
+                    if   k in ("LEFT",):  delivery = "IN"
+                    elif k in ("RIGHT",): delivery = "OUT"
+                    elif k in ("UP",):    delivery = "YORKER"
+                    elif k in ("DOWN",):  delivery = "BOUNCER"
+            shot = random.choices(["DEFEND", "SWING", "LOFT", "LEAVE"],
+                                   get_shot_bias(delivery))[0]
 
         print()
         animate("  Bowler runs in...", delay=0.02)
         pause(0.35)
 
-        # ── NO-BALL ───────────────────────────────────────────────────
+        # No-ball
         if (not free_hit) and random.random() < 0.04:
             animate(f"  {random.choice(COMMENTARY['NB'])}")
             score += 1; extras_detail["nb"] += 1
             bst["runs"] += 1; over_log.append("nb")
             free_hit = True; pause(0.9); continue
 
-        # ── WIDE ──────────────────────────────────────────────────────
-        if delivery in ["IN","BOUNCER"] and random.random() < 0.04:
+        # Wide — pace: IN/BOUNCER can go wide; spin: GOOGLY/FLIPPER can
+        wide_types = ["IN", "BOUNCER"] if b_type != "spin" else ["GOOGLY", "FLIPPER"]
+        if delivery in wide_types and random.random() < 0.04:
             animate(f"  {random.choice(COMMENTARY['WD'])}")
             score += 1; extras_detail["w"] += 1
             bst["runs"] += 1; over_log.append("wd")
             pause(0.9); continue
 
-        # ── OUTCOME ───────────────────────────────────────────────────
-        result = compute_outcome(shot, lineup[striker], current_bowler,
-                                  pitch, weather,
-                                  batter_balls[striker], bst["balls"])
+        # Outcome
+        result = compute_outcome(
+            shot, lineup[striker], current_bowler,
+            delivery, pitch, weather,
+            batter_balls[striker], bst["balls"]
+        )
 
+        # Free hit
         if free_hit and result == "W":
             animate("  FREE HIT saves him — cannot be dismissed!")
             result = 0
         free_hit = False
 
-        # ── WICKET ────────────────────────────────────────────────────
+        # Wicket
         if result == "W":
             animate(f"  {random.choice(COMMENTARY['W'])}")
 
-            # DRS — batting side always challenges (user if batting, computer if bowling)
+            # ── Pick dismissal type BEFORE DRS ────────────────────────
+            fielders = [p for p in TEAMS[bowling_team] if p != current_bowler]
+            fielder  = short(random.choice(fielders)) if fielders else "sub"
+            wk       = short(TEAMS[bowling_team][min(6, len(TEAMS[bowling_team]) - 1)])
+            dis_tmpl, credit, drs_eligible = pick_dismissal(delivery)
+            dis_str  = dis_tmpl.format(
+                bowler=short(current_bowler), fielder=fielder, wk=wk)
+
+            # ── DRS — only offered for LBW and edge/caught-behind ─────
             overturned = False
-            if user_is_batting:
-                # USER is batting → user decides whether to review
-                if user_drs > 0:
-                    yn = input("  Challenge with DRS? (Y/N): ").strip().upper()
-                    if yn == "Y":
-                        user_drs -= 1
+            if drs_eligible:
+                if user_is_batting:
+                    # User's batter got out — user can review
+                    if user_drs > 0:
+                        yn = input("  Challenge with DRS? (Y/N): ").strip().upper()
+                        if yn == "Y":
+                            user_drs -= 1
+                            if random.random() < 0.35:
+                                animate("  DRS: Replays show it's missing — NOT OUT!")
+                                overturned = True
+                            else:
+                                animate("  DRS: Ball-tracking confirms — OUT stands!")
+                else:
+                    # Computer's batter got out — computer may review
+                    comp_drs = getattr(play_innings, '_comp_drs', 1)
+                    if comp_drs > 0 and random.random() < 0.40:
+                        animate("  Computer reviews the decision...")
+                        pause(0.8)
+                        play_innings._comp_drs = comp_drs - 1
                         if random.random() < 0.35:
                             animate("  DRS: Replays show it's missing — NOT OUT!")
                             overturned = True
                         else:
                             animate("  DRS: Ball-tracking confirms — OUT stands!")
             else:
-                # USER is bowling → COMPUTER (batting side) decides to review
-                comp_drs = getattr(play_innings, '_comp_drs', 1)
-                if comp_drs > 0 and random.random() < 0.40:
-                    animate("  Computer reviews the decision...")
-                    pause(0.8)
-                    play_innings._comp_drs = comp_drs - 1
-                    if random.random() < 0.35:
-                        animate("  DRS: Replays show it's missing — NOT OUT!")
-                        overturned = True
-                    else:
-                        animate("  DRS: Ball-tracking confirms — OUT stands!")
+                # No DRS available — show reason for clarity
+                if dis_tmpl.startswith("run out"):
+                    animate("  Run out — no DRS available for run outs.")
+                # For bowled/caught/stumped, umpire's finger is final — silent
 
             if overturned:
                 result = 0
                 animate("  Batter survives!")
             else:
-                fielders = [p for p in TEAMS[bowling_team] if p != current_bowler]
-                fielder  = short(random.choice(fielders)) if fielders else "sub"
-                wk       = short(TEAMS[bowling_team][min(6,len(TEAMS[bowling_team])-1)])
-                dis_str  = random.choice(DISMISSAL_METHODS).format(
-                    bowler=short(current_bowler), fielder=fielder, wk=wk)
                 batter_dismissal[striker] = dis_str
 
                 print(f"\n  {lineup[striker]}: {batter_runs[striker]}"
                       f"({batter_balls[striker]}b) — {dis_str}")
                 pause(1.5)
 
-                bst["wickets"]   += 1
-                bst["balls"]     += 1
+                # Only credit the bowler if it's a bowler dismissal (not run out)
+                if credit == "bowler":
+                    bst["wickets"] += 1
+                bst["balls"]          += 1
                 bst["over_runs"].append("W")
                 over_log.append("W")
                 batter_balls[striker] += 1
-                balls     += 1
-                wickets   += 1
-                partnership_runs = 0
+                balls                 += 1
+                wickets               += 1
+                partnership_runs       = 0
 
-                if wickets >= 10: break
+                if wickets >= 10:
+                    break
 
                 striker = wickets + 1
                 batter_runs.setdefault(striker, 0)
@@ -875,20 +1060,26 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
                 if balls % 6 == 0 and balls > 0:
                     striker, non_striker = non_striker, striker
                     _close_over(current_bowler, bowler_stats, bowler_overs)
-                    last_bowler    = current_bowler
-                    current_bowler = pick_bowler(bowling_team, bowler_overs,
-                                                  max_quota, last_bowler)
+                    last_bowler = current_bowler
+                    next_ov = balls // 6 + 1
+                    if not user_is_batting:
+                        current_bowler = user_pick_bowler(
+                            bowling_team, bowler_overs, bowler_stats,
+                            max_quota, last_bowler, next_ov)
+                    else:
+                        current_bowler = pick_bowler(bowling_team, bowler_overs,
+                                                     max_quota, last_bowler)
                     ensure_bowler(current_bowler)
                     over_log = []
-                    animate(f"\n  --- END OF OVER {balls//6} ---")
+                    animate(f"\n  --- END OF OVER {balls // 6} ---")
                     pause(1.2)
                 continue
 
-        # ── RUNS ──────────────────────────────────────────────────────
+        # Runs
         if isinstance(result, int):
             animate(f"  {random.choice(COMMENTARY.get(result, [str(result)+' run(s).']))}")
-            score               += result
-            bst["runs"]         += result
+            score                 += result
+            bst["runs"]           += result
             bst["over_runs"].append(str(result))
             over_log.append("•" if result == 0 else str(result))
             batter_runs[striker]  += result
@@ -902,34 +1093,46 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
                 striker, non_striker = non_striker, striker
             pause(0.85)
 
-        # ── END OF OVER ────────────────────────────────────────────────
+        # End of over
         if balls % 6 == 0 and balls > 0:
             striker, non_striker = non_striker, striker
             _close_over(current_bowler, bowler_stats, bowler_overs)
-            last_bowler    = current_bowler
-            current_bowler = pick_bowler(bowling_team, bowler_overs,
-                                          max_quota, last_bowler)
+            last_bowler = current_bowler
+            next_ov = balls // 6 + 1
+            if not user_is_batting:
+                current_bowler = user_pick_bowler(
+                    bowling_team, bowler_overs, bowler_stats,
+                    max_quota, last_bowler, next_ov)
+            else:
+                current_bowler = pick_bowler(bowling_team, bowler_overs,
+                                             max_quota, last_bowler)
             ensure_bowler(current_bowler)
             over_log = []
-            animate(f"\n  --- END OF OVER {balls//6} ---")
+            animate(f"\n  --- END OF OVER {balls // 6} ---")
             pause(1.2)
 
         if target is not None and score >= target:
             break
 
-    # ── INNINGS SUMMARY ───────────────────────────────────────────────
+    # ── INNINGS SUMMARY shown immediately here, before returning ──────
+    # is_first_innings=True  → shows chase target box + "START THE CHASE"
+    # is_first_innings=False → shows "SEE FINAL RESULT"
     show_innings_summary(
-        batting_team, bowling_team, score, wickets, balls, overs,
+        batting_team, score, wickets, balls, overs,
         extras_detail, batter_runs, batter_balls,
         batter_fours, batter_sixes, batter_dismissal,
-        bowler_stats, lineup, target
+        bowler_stats, lineup,
+        is_first_innings=(innings_num == 1)
     )
+
     return score, wickets, balls, bowler_stats, batter_runs, batter_balls
 
+
 def _close_over(bowler, bowler_stats, bowler_overs):
-    if bowler not in bowler_stats: return
+    if bowler not in bowler_stats:
+        return
     bst = bowler_stats[bowler]
-    if bst["over_runs"] and all(r in ["0","W","•"] for r in bst["over_runs"]):
+    if bst["over_runs"] and all(r in ["0", "W", "•"] for r in bst["over_runs"]):
         bst["maidens"] += 1
     bst["over_runs"] = []
     bowler_overs[bowler] = bowler_overs.get(bowler, 0) + 1
@@ -941,32 +1144,32 @@ def _close_over(bowler, bowler_stats, bowler_overs):
 def pick_potm(t1, t2, br1, bb1, bs1, br2, bb2, bs2):
     candidates = []
     for i, name in enumerate(TEAMS[t1]):
-        sc = br1.get(i,0) + bs1.get(name,{}).get("wickets",0)*25
+        sc = br1.get(i, 0) + bs1.get(name, {}).get("wickets", 0) * 25
         candidates.append((sc, name, t1, bs1))
     for i, name in enumerate(TEAMS[t2]):
-        sc = br2.get(i,0) + bs2.get(name,{}).get("wickets",0)*25
+        sc = br2.get(i, 0) + bs2.get(name, {}).get("wickets", 0) * 25
         candidates.append((sc, name, t2, bs2))
     candidates.sort(key=lambda x: x[0], reverse=True)
-    return candidates[0] if candidates else (0,"Unknown","",{})
+    return candidates[0] if candidates else (0, "Unknown", "", {})
 
 # =========================
-# FINAL RESULT SCREEN  (Image 4)
+# FINAL RESULT SCREEN
 # =========================
 
 def show_final_result(player_team, t1, s1, w1, b1,
-                              t2, s2, w2, b2, overs,
+                      t2, s2, w2, b2, overs,
                       bs1, br1, bb1, bs2, br2, bb2, history):
     clear()
     print_header()
 
     target = s1 + 1
 
-    # ── WIN MESSAGE BOX ───────────────────────────────────────────────
     if s2 >= target:
         wkts_left = 10 - w2
         balls_rem  = overs * 6 - b2
-        ovs_rem    = f"{balls_rem//6}.{balls_rem%6}"
-        msg = f"  \U0001f389  {t2} WIN BY {wkts_left} WICKET(S)  ({ovs_rem} OVERS REMAINING)  \U0001f389"
+        ovs_rem    = f"{balls_rem // 6}.{balls_rem % 6}"
+        msg    = (f"  \U0001f389  {t2} WIN BY {wkts_left} WICKET(S)"
+                  f"  ({ovs_rem} OVERS REMAINING)  \U0001f389")
         winner = t2
     elif s2 == s1:
         msg    = "  \U0001f3c6  IT'S A TIE! WHAT A MATCH!  \U0001f3c6"
@@ -979,11 +1182,10 @@ def show_final_result(player_team, t1, s1, w1, b1,
     draw_box(["", msg, ""])
     print()
 
-    # ── FINAL RECAP ───────────────────────────────────────────────────
-    rr1 = round((s1/(b1 if b1 else 1))*6, 2)
-    rr2 = round((s2/(b2 if b2 else 1))*6, 2)
-    ov1 = f"{b1//6}.{b1%6}"
-    ov2 = f"{b2//6}.{b2%6}"
+    rr1 = round((s1 / (b1 if b1 else 1)) * 6, 2)
+    rr2 = round((s2 / (b2 if b2 else 1)) * 6, 2)
+    ov1 = f"{b1 // 6}.{b1 % 6}"
+    ov2 = f"{b2 // 6}.{b2 % 6}"
 
     print("  FINAL RECAP")
     print("  " + "-" * 70)
@@ -991,42 +1193,42 @@ def show_final_result(player_team, t1, s1, w1, b1,
     print(f"  \U0001f3cf 2ND INNINGS ({t2}):   {s2}/{w2} ({ov2})   |  RR: {rr2}")
     print()
 
-    # ── PLAYER OF THE MATCH ───────────────────────────────────────────
     potm_sc, potm_name, potm_team, potm_bst_dict = pick_potm(
         t1, t2, br1, bb1, bs1, br2, bb2, bs2)
-    potm_bst = potm_bst_dict.get(potm_name, {})
-    potm_idx = TEAMS.get(potm_team,[]).index(potm_name) \
-               if potm_name in TEAMS.get(potm_team,[]) else 0
-    potm_runs  = (br1 if potm_team==t1 else br2).get(potm_idx, 0)
-    potm_bals  = (bb1 if potm_team==t1 else bb2).get(potm_idx, 0)
+    potm_bst   = potm_bst_dict.get(potm_name, {})
+    potm_idx   = (TEAMS.get(potm_team, []).index(potm_name)
+                  if potm_name in TEAMS.get(potm_team, []) else 0)
+    potm_runs  = (br1 if potm_team == t1 else br2).get(potm_idx, 0)
+    potm_bals  = (bb1 if potm_team == t1 else bb2).get(potm_idx, 0)
     potm_wkts  = potm_bst.get("wickets", 0)
 
     print("  \U0001f947 PLAYER OF THE MATCH")
     print("  " + "-" * 70)
     print(f"  >> {short(potm_name)} ({potm_team})")
-    if potm_bst.get("balls",0) > 0:
-        ov_s = f"{potm_bst['balls']//6}.{potm_bst['balls']%6}"
+    if potm_bst.get("balls", 0) > 0:
+        ov_s = f"{potm_bst['balls'] // 6}.{potm_bst['balls'] % 6}"
         print(f"  >> PERFORMANCE: {ov_s} - {potm_bst.get('maidens',0)} - "
               f"{potm_bst.get('runs',0)} - {potm_wkts}")
     else:
         print(f"  >> PERFORMANCE: {potm_runs} runs ({potm_bals} balls)")
     print()
 
-    # ── LEADERS ───────────────────────────────────────────────────────
     print("  " + "-" * 70)
     all_bat = []
-    for i, name in enumerate(TEAMS[t1]): all_bat.append((br1.get(i,0), bb1.get(i,0), name))
-    for i, name in enumerate(TEAMS[t2]): all_bat.append((br2.get(i,0), bb2.get(i,0), name))
+    for i, name in enumerate(TEAMS[t1]):
+        all_bat.append((br1.get(i, 0), bb1.get(i, 0), name))
+    for i, name in enumerate(TEAMS[t2]):
+        all_bat.append((br2.get(i, 0), bb2.get(i, 0), name))
     all_bat.sort(key=lambda x: x[0], reverse=True)
 
     all_bowl = []
     for name, bst in {**bs1, **bs2}.items():
-        if bst.get("balls",0) > 0:
+        if bst.get("balls", 0) > 0:
             all_bowl.append((bst["wickets"], bst["runs"], bst["balls"], name))
     all_bowl.sort(key=lambda x: (-x[0], x[1]))
 
-    left_rows  = ["[ BATTING LEADERS ]", "─"*28]
-    right_rows = ["[ BOWLING LEADERS ]", "─"*28]
+    left_rows  = ["[ BATTING LEADERS ]", "─" * 28]
+    right_rows = ["[ BOWLING LEADERS ]", "─" * 28]
     for r, b, name in all_bat[:3]:
         left_rows.append(f"  {short(name):<18}  {r} ({b})")
     for wk, rns, bls, name in all_bowl[:3]:
@@ -1039,13 +1241,13 @@ def show_final_result(player_team, t1, s1, w1, b1,
         print(f"  {ll:<35}  {rl}")
     print()
 
-    # ── OPTIONS ───────────────────────────────────────────────────────
     print("-" * 78)
     print("  OPTIONS: [R]eplay  |  [Q]uit to Menu")
     print("-" * 78)
     print()
 
-    history.append(f"{t1} {s1}/{w1}  vs  {t2} {s2}/{w2}  —  {winner} won")
+    history.append(
+        f"{t1} {s1}/{w1}  vs  {t2} {s2}/{w2}  —  {winner} won")
 
     while True:
         choice = input(">> SELECT OPTION: ").strip().upper()
@@ -1069,7 +1271,6 @@ def main():
             show_records(history)
             continue
 
-        # Select overs
         clear(); print_header(); print()
         while True:
             try:
@@ -1085,25 +1286,22 @@ def main():
         t1 = player   if user_bats_first else computer
         t2 = computer if user_bats_first else player
 
-        # ── INNINGS 1 ─────────────────────────────────────────────────
+        # Innings 1 — summary shown inside play_innings, user presses Enter
         clear(); print_header()
         animate(f"\n  {t1} will BAT FIRST\n")
         input(">> PRESS [ENTER] TO START THE INNINGS...")
-        s1,w1,b1,bs1,br1,bb1 = play_innings(
-            overs, t1, t2, t1==player, pitch, weather, 1)
+        s1, w1, b1, bs1, br1, bb1 = play_innings(
+            overs, t1, t2, t1 == player, pitch, weather, 1)
 
-        # ── INNINGS 2 ─────────────────────────────────────────────────
-        target = s1 + 1
-        clear(); print_header()
-        animate(f"\n  {t2} need {target} to win\n")
-        input(">> PRESS [ENTER] TO START THE CHASE...")
-        s2,w2,b2,bs2,br2,bb2 = play_innings(
-            overs, t2, t1, t2==player, pitch, weather, 2, target)
+        # Innings 2 — starts right after user pressed Enter on innings 1 summary
+        s2, w2, b2, bs2, br2, bb2 = play_innings(
+            overs, t2, t1, t2 == player, pitch, weather, 2, s1 + 1)
 
-        # ── RESULT ────────────────────────────────────────────────────
+        # Final result
         action = show_final_result(
-            player, t1,s1,w1,b1, t2,s2,w2,b2, overs,
-            bs1,br1,bb1, bs2,br2,bb2, history
+            player, t1, s1, w1, b1,
+                    t2, s2, w2, b2, overs,
+            bs1, br1, bb1, bs2, br2, bb2, history
         )
         if action == "menu":
             continue
