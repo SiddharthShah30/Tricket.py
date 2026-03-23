@@ -419,7 +419,6 @@ def get_ai_field_setup(personality, balls, total_balls, wickets, target, score):
 
 
 def draw_field_map(field_setup, selected_zone=None):
-    """Draw aligned ASCII cricket field mini-map in a Cricket 19/26 style."""
     def zid(z):
         return f"*{z}*" if selected_zone == z else f"[{z}]"
 
