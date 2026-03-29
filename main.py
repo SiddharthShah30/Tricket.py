@@ -1,3 +1,4 @@
+
 import os
 import random
 import sys
@@ -5,6 +6,31 @@ import time
 import json
 import math
 from typing import Any
+
+# Colorama for colored CLI output
+try:
+    from colorama import init as colorama_init, Fore, Back, Style
+    colorama_init(autoreset=True)
+except ImportError:
+    # Fallback if colorama is not installed
+    class Dummy:
+        RESET = RED = GREEN = YELLOW = BLUE = MAGENTA = CYAN = WHITE = BLACK = BRIGHT = DIM = NORMAL = ''
+    Fore = Back = Style = Dummy()
+
+def ctext(text, color=Fore.WHITE, style=Style.NORMAL):
+    return f"{style}{color}{text}{Style.RESET_ALL}"
+
+def highlight(text):
+    return ctext(text, Fore.CYAN, Style.BRIGHT)
+
+def error_text(text):
+    return ctext(text, Fore.RED, Style.BRIGHT)
+
+def success_text(text):
+    return ctext(text, Fore.GREEN, Style.BRIGHT)
+
+def info_text(text):
+    return ctext(text, Fore.YELLOW, Style.BRIGHT)
 
 # =========================
 # TEAMS
@@ -1013,32 +1039,32 @@ def print_header():
 def main_menu():
     while True:
         clear()
-        print("=" * 78)
-        ver  = "[ V 1.1.0 - CLI CRICKET SIMULATOR ]"
-        user = "[ USER: PLAYER_1 ]"
-        gap  = 78 - len(ver) - len(user)
+        print(ctext("=" * 78, Fore.BLUE, Style.BRIGHT))
+        ver  = ctext("[ V 1.1.0 - CLI CRICKET SIMULATOR ]", Fore.CYAN, Style.BRIGHT)
+        user = ctext("[ USER: PLAYER_1 ]", Fore.YELLOW, Style.BRIGHT)
+        gap  = 78 - len("[ V 1.1.0 - CLI CRICKET SIMULATOR ]") - len("[ USER: PLAYER_1 ]")
         print(ver + " " * gap + user)
-        print("=" * 78)
+        print(ctext("=" * 78, Fore.BLUE, Style.BRIGHT))
         print()
         draw_box([
             "",
-            "  [1]   QUICK MATCH  (1 / 5 / 10 / 20 OVERS)",
+            highlight("  [1]   QUICK MATCH  (1 / 5 / 10 / 20 OVERS)"),
             "",
-            "  [2]   RECORDS  (MATCH HISTORY & PLAYER STATS)",
+            highlight("  [2]   RECORDS  (MATCH HISTORY & PLAYER STATS)"),
             "",
-            "  [3]   QUIT GAME",
+            error_text("  [3]   QUIT GAME"),
             "",
         ])
         print()
-        print("-" * 78)
-        print("TIP: " + random.choice(TIPS))
-        print("-" * 78)
+        print(ctext("-" * 78, Fore.MAGENTA))
+        print(info_text("TIP: ") + ctext(random.choice(TIPS), Fore.WHITE, Style.BRIGHT))
+        print(ctext("-" * 78, Fore.MAGENTA))
         print()
-        choice = safe_input(">> SELECT OPTION [1-3]: ", "3").strip()
+        choice = safe_input(highlight(">> SELECT OPTION [1-3]: "), "3").strip()
         if choice == "1":   return "play"
         elif choice == "2": return "records"
         elif choice == "3":
-            print("\nGG! Thanks for playing.\n")
+            print(success_text("\nGG! Thanks for playing.\n"))
             sys.exit(0)
 
 # =========================
@@ -1050,22 +1076,22 @@ def show_records(history, stats):
     print_header()
     print()
     if not history:
-        print("  No match records yet. Play a game first!")
+        print(error_text("  No match records yet. Play a game first!"))
     else:
-        print("  MATCH HISTORY")
-        print("  " + "-" * 60)
+        print(highlight("  MATCH HISTORY"))
+        print(ctext("  " + "-" * 60, Fore.MAGENTA))
         for i, rec in enumerate(history[-10:], 1):
-            print(f"  {i:>2}. {rec}")
+            print(ctext(f"  {i:>2}. {rec}", Fore.WHITE, Style.BRIGHT))
     print()
-    print("  CAREER SNAPSHOT")
-    print("  " + "-" * 60)
-    print(f"  Matches: {stats.get('matches', 0)}   Wins: {stats.get('user_wins', 0)}   "
-          f"Losses: {stats.get('user_losses', 0)}   Ties: {stats.get('ties', 0)}")
-    print(f"  Total Runs (all innings): {stats.get('total_runs', 0)}")
-    print(f"  Total Wickets Fallen: {stats.get('total_wickets', 0)}")
-    print(f"  Highest Combined Match Total: {stats.get('highest_match_total', 0)}")
+    print(highlight("  CAREER SNAPSHOT"))
+    print(ctext("  " + "-" * 60, Fore.MAGENTA))
+    print(ctext(f"  Matches: {stats.get('matches', 0)}   Wins: {stats.get('user_wins', 0)}   "
+          f"Losses: {stats.get('user_losses', 0)}   Ties: {stats.get('ties', 0)}", Fore.CYAN, Style.BRIGHT))
+    print(ctext(f"  Total Runs (all innings): {stats.get('total_runs', 0)}", Fore.YELLOW, Style.BRIGHT))
+    print(ctext(f"  Total Wickets Fallen: {stats.get('total_wickets', 0)}", Fore.YELLOW, Style.BRIGHT))
+    print(ctext(f"  Highest Combined Match Total: {stats.get('highest_match_total', 0)}", Fore.GREEN, Style.BRIGHT))
     print()
-    safe_input("  >> PRESS ENTER TO GO BACK...", "")
+    safe_input(highlight("  >> PRESS ENTER TO GO BACK..."), "")
 
 
 def choose_match_settings():
@@ -1393,16 +1419,18 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
     total  = overs * 6
 
     clear()
-    print_header()
+    print(ctext("=" * 78, Fore.BLUE, Style.BRIGHT))
+    print(ctext(f" INNINGS {innings_num} - {batting_team} vs {bowling_team} ", Fore.CYAN, Style.BRIGHT).center(78))
+    print(ctext("=" * 78, Fore.BLUE, Style.BRIGHT))
 
-    left = f"  {batting_team}: {score}/{wickets} ({cur_ov}.{cur_bl})"
+    left = ctext(f"  {batting_team}: {score}/{wickets} ({cur_ov}.{cur_bl})", Fore.GREEN, Style.BRIGHT)
     if target is not None:
         balls_left = total - balls
         runs_left  = target - score
         rrr = round((runs_left / balls_left) * 6, 2) if balls_left > 0 else 0.00
-        right = f"TARGET: {target}  (RR: {crr:.2f}, RRR: {rrr:.2f})  "
+        right = ctext(f"TARGET: {target}  (RR: {crr:.2f}, RRR: {rrr:.2f})  ", Fore.YELLOW, Style.BRIGHT)
     else:
-        right = f"RR: {crr:.2f}  "
+        right = ctext(f"RR: {crr:.2f}  ", Fore.YELLOW, Style.BRIGHT)
     draw_box([left.ljust(40) + right.rjust(34)])
     print()
 
@@ -1423,58 +1451,67 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
 
     timing_label, timing_note = timing_feedback(timing_grade, timing_quality)
     role = "BATTING" if user_is_batting else "BOWLING"
-    role_line = f"  YOU ARE {role} | Innings {innings_num}"
+    role_line = ctext(f"  YOU ARE {role} | Innings {innings_num}", Fore.MAGENTA, Style.BRIGHT)
     if user_is_batting:
-        zone_line = (f"  TARGET ZONE: {selected_zone} - {FIELD_ZONES.get(selected_zone, 'Straight')}"
-                     if selected_zone else "  TARGET ZONE: 5 - Straight")
+        zone_line = (ctext(f"  TARGET ZONE: {selected_zone} - {FIELD_ZONES.get(selected_zone, 'Straight')}", Fore.CYAN, Style.BRIGHT)
+                     if selected_zone else ctext("  TARGET ZONE: 5 - Straight", Fore.CYAN, Style.BRIGHT))
     else:
-        zone_line = f"  BOWLING ZONE: {bowling_zone} - {FIELD_ZONES.get(bowling_zone, 'Straight')}"
+        zone_line = ctext(f"  BOWLING ZONE: {bowling_zone} - {FIELD_ZONES.get(bowling_zone, 'Straight')}", Fore.CYAN, Style.BRIGHT)
+
+    timing_color = {
+        "PERFECT": Fore.GREEN,
+        "GOOD": Fore.CYAN,
+        "AVERAGE": Fore.YELLOW,
+        "BAD": Fore.MAGENTA,
+        "MISS": Fore.RED,
+        "-": Fore.WHITE
+    }.get(timing_label, Fore.WHITE)
 
     draw_box([
         role_line,
         zone_line,
-        f"  TIMING RESULT: {timing_label:<8} ({timing_note})",
-        "  TIMING SCALE: PERFECT > GOOD > AVERAGE > BAD > MISS",
+        ctext(f"  TIMING RESULT: {timing_label:<8} ({timing_note})", timing_color, Style.BRIGHT),
+        ctext("  TIMING SCALE: PERFECT > GOOD > AVERAGE > BAD > MISS", Fore.WHITE, Style.DIM),
     ])
 
     tactical_lines = tactical_insight(score, wickets, balls, total, target, partnership_runs, over_log)
-    draw_box(tactical_lines)
+    draw_box([ctext(line, Fore.YELLOW, Style.BRIGHT) for line in tactical_lines])
 
     print()
-    print("  CENTER PLAY ZONE")
-    print("  " + "-" * 60)
+    print(ctext("  CENTER PLAY ZONE", Fore.BLUE, Style.BRIGHT))
+    print(ctext("  " + "-" * 60, Fore.BLUE))
     if user_is_batting and field_setup:
         draw_field_map(field_setup, selected_zone)
     elif not user_is_batting:
         guide = [
-            "  BOWLING EFFECT GUIDE",
-            "  Off zones (1/2/3): tighter lines, dots/wickets",
-            "  Leg zones (4/6/7): boundary risk if missed",
-            "  Straight (5/8/9): yorker channel in death overs",
+            ctext("  BOWLING EFFECT GUIDE", Fore.CYAN, Style.BRIGHT),
+            ctext("  Off zones (1/2/3): tighter lines, dots/wickets", Fore.WHITE),
+            ctext("  Leg zones (4/6/7): boundary risk if missed", Fore.WHITE),
+            ctext("  Straight (5/8/9): yorker channel in death overs", Fore.WHITE),
         ]
         for ln in guide:
             print(ln)
 
     print()
-    print("  BOTTOM SCOREBOARD")
-    print("  " + "-" * 60)
-    print(f"  STRIKER   : {short(lineup[striker]):<18} {s_r:>3} ({s_b})")
-    print(f"  NON-STR   : {short(lineup[non_striker]):<18} {ns_r:>3} ({ns_b})")
-    print(f"  BOWLER    : {short(current_bowler):<18} {bow_spell}")
-    print(f"  LAST OVER : {over_sym}")
+    print(ctext("  BOTTOM SCOREBOARD", Fore.BLUE, Style.BRIGHT))
+    print(ctext("  " + "-" * 60, Fore.BLUE))
+    print(ctext(f"  STRIKER   : {short(lineup[striker]):<18} {s_r:>3} ({s_b})", Fore.GREEN, Style.BRIGHT))
+    print(ctext(f"  NON-STR   : {short(lineup[non_striker]):<18} {ns_r:>3} ({ns_b})", Fore.GREEN))
+    print(ctext(f"  BOWLER    : {short(current_bowler):<18} {bow_spell}", Fore.MAGENTA, Style.BRIGHT))
+    print(ctext(f"  LAST OVER : {over_sym}", Fore.YELLOW))
 
     if target is not None:
         runs_left = target - score
         balls_left = total - balls
-        print(f"  CHASE     : Need {runs_left} off {balls_left}")
-    print(f"  PARTNER   : {partnership_runs} runs")
+        print(ctext(f"  CHASE     : Need {runs_left} off {balls_left}", Fore.CYAN, Style.BRIGHT))
+    print(ctext(f"  PARTNER   : {partnership_runs} runs", Fore.WHITE, Style.BRIGHT))
     if free_hit:
-        print("  ALERT     : FREE HIT")
+        print(ctext("  ALERT     : FREE HIT", Fore.RED, Style.BRIGHT))
 
     print()
-    print(f"  Pitch: {pitch}   Weather: {weather}   Difficulty: {difficulty}   AI: {personality}")
+    print(ctext(f"  Pitch: {pitch}   Weather: {weather}   Difficulty: {difficulty}   AI: {personality}", Fore.WHITE, Style.DIM))
     print()
-    print("-" * 78)
+    print(ctext("-" * 78, Fore.BLUE))
 
 # =========================
 # INNINGS SUMMARY
