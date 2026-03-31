@@ -1,3 +1,59 @@
+# Modern field view using Rich
+
+# --- Rich Table-based field view ---
+from rich.table import Table
+from rich.panel import Panel
+from rich.align import Align
+from rich.console import Console
+
+console = Console()
+
+def draw_modern_field(selected_zone=None):
+    zones = {
+        "1": "Third Man", "2": "Cover", "3": "Mid-Off",
+        "4": "Mid-Wicket", "5": "Straight", "6": "Fine Leg",
+        "7": "Mid-On", "8": "Long-On", "9": "Long-Off"
+    }
+
+    def fmt(zid):
+        """Returns a fixed-width styled label to prevent shifting."""
+        label = zones[zid]
+        style = "bold reverse yellow" if selected_zone == zid else "bold cyan"
+        return f"[{zid}] [{style}]{label:<12}[/]"
+
+    # Create a 3-column grid for perfect alignment
+    # [Left Labels]  [The Pitch/Center]  [Right Labels]
+    field_grid = Table.grid(expand=True)
+    field_grid.add_column(justify="right", ratio=1)
+    field_grid.add_column(justify="center", ratio=1)
+    field_grid.add_column(justify="left", ratio=1)
+
+    # Pitch Art (Static height)
+    pitch_top = "[white]┌───────────┐[/]"
+    pitch_mid = "[white]│[/][yellow]   PITCH   [/][white]│[/]"
+    pitch_ball = "[white]│[/][yellow]    [red]●[/]      [/][white]│[/]"
+    pitch_bot = "[white]└───────────┘[/]"
+
+    # Building the Rows
+    field_grid.add_row("", "[dim white]==== BOUNDARY ====[/]", "")
+    field_grid.add_row(fmt("1"), "[dim green]. . . . .[/]", fmt("6"))
+    field_grid.add_row("", "[dim green]. . .[/]", "")
+    field_grid.add_row(fmt("2"), pitch_top, fmt("4"))
+    field_grid.add_row("", pitch_ball, "")
+    field_grid.add_row(fmt("3"), pitch_mid, fmt("7"))
+    field_grid.add_row("", pitch_bot, "")
+    field_grid.add_row(fmt("9"), "[dim green]. . .[/]", fmt("8"))
+    field_grid.add_row("", "[dim white]==== PITCH VIEW ====[/]", "")
+
+    # Wrap in a Panel
+    arena_panel = Panel(
+        Align.center(field_grid),
+        title="[bold green]TRIKET MATCH ARENA[/]",
+        border_style="blue",
+        padding=(1, 1)
+    )
+
+    console.print(arena_panel)
 
 import os
 import random
@@ -893,27 +949,36 @@ def pause_game():
 
 def choose_target_zone(field_setup):
     print("  BATTING TARGET: Choose zone [1-9]. [ENTER] keeps center (5).")
-    draw_field_map(field_setup, selected_zone="5")
+    selected = "5"
+    draw_modern_field(selected_zone=selected)
     while True:
         k = get_key()
         if k in FIELD_ZONES:
+            selected = k
+            clear()
+            print("  BATTING TARGET: Choose zone [1-9]. [ENTER] keeps center (5).")
+            draw_modern_field(selected_zone=selected)
             return k
         if k == "ENTER":
-            return "5"
+            return selected
         if k == "ESC":
             pause_game()
 
 
 def choose_bowling_zone():
     print("  BOWLING PLAN: Choose zone [1-9] for line/length intent. [ENTER] keeps 5.")
-    fake_setup = {z: "ring" for z in FIELD_ZONES}
-    draw_field_map(fake_setup, selected_zone="5")
+    selected = "5"
+    draw_modern_field(selected_zone=selected)
     while True:
         k = get_key()
         if k in FIELD_ZONES:
+            selected = k
+            clear()
+            print("  BOWLING PLAN: Choose zone [1-9] for line/length intent. [ENTER] keeps 5.")
+            draw_modern_field(selected_zone=selected)
             return k
         if k == "ENTER":
-            return "5"
+            return selected
         if k == "ESC":
             pause_game()
 
@@ -1478,10 +1543,9 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
     draw_box([ctext(line, Fore.YELLOW, Style.BRIGHT) for line in tactical_lines])
 
     print()
-    print(ctext("  CENTER PLAY ZONE", Fore.BLUE, Style.BRIGHT))
-    print(ctext("  " + "-" * 60, Fore.BLUE))
+    # Removed 'CENTER PLAY ZONE' and separator for modern field view
     if user_is_batting and field_setup:
-        draw_field_map(field_setup, selected_zone)
+        draw_modern_field(selected_zone)
     elif not user_is_batting:
         guide = [
             ctext("  BOWLING EFFECT GUIDE", Fore.CYAN, Style.BRIGHT),
