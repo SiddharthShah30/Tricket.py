@@ -671,6 +671,24 @@ def cursor_to_plan(cursor):
         return "1"
     return "2"
 
+def cursor_to_numeric_target(cursor):
+    # Normalize bowling cursor into the same 1-9 mental model used in batting.
+    mapping = {
+        (0, 0): "9", (0, 1): "3", (0, 2): "1",
+        (1, 0): "8", (1, 1): "5", (1, 2): "2",
+        (2, 0): "7", (2, 1): "6", (2, 2): "4",
+        (3, 0): "7", (3, 1): "6", (3, 2): "4",
+    }
+    return mapping.get(cursor, "5")
+
+def numeric_target_to_cursor(key):
+    mapping = {
+        "9": (0, 0), "3": (0, 1), "1": (0, 2),
+        "8": (1, 0), "5": (1, 1), "2": (1, 2),
+        "7": (2, 0), "6": (2, 1), "4": (2, 2),
+    }
+    return mapping.get(key)
+
 def delivery_from_type_and_bowler(bowler_type, type_key):
     if bowler_type == "spin":
         if type_key == "1":
@@ -695,11 +713,12 @@ def delivery_from_type_and_bowler(bowler_type, type_key):
 # =========================
 
 COMMENTARY = {
-    0:   ["Dot ball. Nothing doing.",
+    0:   [
           "Well bowled — beaten outside off!",
           "Defended solidly back to the bowler.",
           "Plays and misses! Lucky there.",
-          "Tight line, no run offered."],
+        "Tight line, no run offered.",
+    ],
     1:   ["Nudged to mid-on, easy single.",
           "Pushed to covers, comes back for one.",
           "Dabbed fine for a single.",
@@ -710,7 +729,6 @@ COMMENTARY = {
           "Flicked off the hips — two more!"],
     4:   ["FOUR! Cracking drive through covers!",
           "FOUR! Slapped through mid-wicket!",
-          "FOUR! Edged but flies to the boundary!",
           "FOUR! Swept hard — races away!",
           "FOUR! Full toss punished to the fence!"],
     6:   ["SIX! Right out of the ground!",
@@ -1989,20 +2007,22 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
         r, c = bowling_cursor
         row_name = BOWL_ROWS[r]
         col_name = BOWL_COLS[c]
-        row_labels = [ctext(f"({name})", Fore.CYAN if i == r else THEME_TEXT, Style.BRIGHT if i == r else Style.DIM) for i, name in enumerate(BOWL_ROWS)]
-        col_labels = [ctext(f"({name})", Fore.CYAN if i == c else THEME_TEXT, Style.BRIGHT if i == c else Style.DIM) for i, name in enumerate(BOWL_COLS)]
+        focus_num = cursor_to_numeric_target((r, c))
+
+        def bfmt(z):
+            return ctext(f"[{z}]", Fore.CYAN, Style.BRIGHT) if z == focus_num else ctext(f"[{z}]", THEME_TEXT, Style.DIM)
 
         grid = [
-            f"      {pad_visible(col_labels[0], 10)}  {pad_visible(col_labels[1], 10)}  {pad_visible(col_labels[2], 10)}",
-            f"{pad_visible(row_labels[0], 9)} |{' ' * (2 + c * 12)}{ctext('⊙', Fore.CYAN, Style.BRIGHT) if r == 0 else ' '}|",
-            f"{pad_visible(row_labels[1], 9)} |{' ' * (2 + c * 12)}{ctext('⊙', Fore.CYAN, Style.BRIGHT) if r == 1 else ' '}|",
-            f"{pad_visible(row_labels[2], 9)} |{' ' * (2 + c * 12)}{ctext('⊙', Fore.CYAN, Style.BRIGHT) if r == 2 else ' '}|",
-            f"{pad_visible(row_labels[3], 9)} |{' ' * (2 + c * 12)}{ctext('⊙', Fore.CYAN, Style.BRIGHT) if r == 3 else ' '}|",
+            "         " + bfmt("9") + "   " + bfmt("3") + "   " + bfmt("1"),
+            "         " + bfmt("8") + "   " + bfmt("5") + "   " + bfmt("2"),
+            "         " + bfmt("7") + "   " + bfmt("6") + "   " + bfmt("4"),
+            ctext("            TARGET GRID", THEME_TEXT),
+            ctext(f"            L/L: {row_name} / {col_name}", Fore.CYAN, Style.BRIGHT),
         ]
         action_left = grid
         action_right = [
             ctext(f"TYPE [{bowling_type}]: {BOWLING_PLANS.get(bowling_type, BOWLING_PLANS['1'])['name']}", THEME_TEXT),
-            ctext(f"TARGET: {row_name} / {col_name}", Fore.CYAN, Style.BRIGHT),
+            ctext(f"TARGET: [{focus_num}] {row_name} / {col_name}", Fore.CYAN, Style.BRIGHT),
             ctext(f"RELEASE: {progress_bar(int(max(1, min(10, timing_quality * 10))), 10, 10)}", THEME_TEXT),
             ctext(f"> {release_grade} <", Fore.GREEN if release_grade == "PERFECT" else (Fore.CYAN if release_grade == "GOOD" else Fore.YELLOW), Style.BRIGHT),
         ]
@@ -2025,7 +2045,7 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
         else:
             center_line(ctext(f"> {timing_label} <", THEME_TEXT, Style.DIM))
     else:
-        center_line(ctext("[1-4] BALL TYPE | [ARROWS] TARGET | [SPACE/ENTER] RELEASE | [ESC]", THEME_TEXT, Style.BRIGHT))
+        center_line(ctext("[1-4] BALL TYPE | [1-9 or ARROWS] TARGET | [SPACE/ENTER] RELEASE | [ESC]", THEME_TEXT, Style.BRIGHT))
         if release_grade == "PERFECT":
             center_line(ctext("RELEASE PERFECT", Fore.GREEN, Style.BRIGHT))
         elif release_grade in ("EARLY", "LATE"):
@@ -2196,7 +2216,7 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
                 center_line(ctext("SPIN CONTROL: [1] NORMAL [2] SHORT [3] FULL [4] YORKER", Fore.WHITE, Style.BRIGHT))
             else:
                 center_line(ctext("PACE CONTROL: [1] NORMAL [2] SHORT [3] FULL [4] YORKER", Fore.WHITE, Style.BRIGHT))
-            center_line(ctext("BOWLING: ARROWS MOVE TARGET, SPACE/ENTER LOCK RELEASE", Fore.WHITE))
+            center_line(ctext("BOWLING: [1-9] OR ARROWS TARGET, SPACE/ENTER LOCK RELEASE", Fore.WHITE))
         center_line(ctext("SYSTEM: [ESC] Pause / Resume", Fore.WHITE))
         center_line(ctext("═" * min(term_width() - 2, 112), Fore.CYAN, Style.BRIGHT))
 
@@ -2290,6 +2310,20 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
                         bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode,
                         bowling_cursor, bowling_type, release_grade
                     )
+                    continue
+                if k in FIELD_ZONES:
+                    mapped = numeric_target_to_cursor(k)
+                    if mapped is not None:
+                        bowling_cursor = mapped
+                        render_play_screen(
+                            batting_team, bowling_team, score, wickets, overs, balls,
+                            innings_num, lineup, striker, non_striker,
+                            batter_runs, batter_balls, current_bowler, bowler_stats,
+                            over_log, partnership_runs, pitch, weather, difficulty, personality,
+                            field_setup, selected_zone, timing_grade, timing_quality,
+                            bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode,
+                            bowling_cursor, bowling_type, release_grade
+                        )
                     continue
                 if k in ("SPACE", "ENTER"):
                     release_grade, timing_quality, drift = run_release_meter(get_stat(current_bowler, "bowl_skill", 75), difficulty)
