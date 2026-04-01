@@ -568,6 +568,9 @@ BOWLING_PLANS = {
     "5": {"name": "Wide",   "hint": "Outside-off tight line"},
 }
 
+BOWL_ROWS = ["YORKER", "FULL", "GOOD", "SHORT"]
+BOWL_COLS = ["WIDE", "STUMP", "BODY"]
+
 ZONE_PROFILE = {
     "1": "off",
     "2": "off",
@@ -642,6 +645,49 @@ def zone_gap_state(field_setup, zone):
         return True
     f = field_setup.get(zone, "ring")
     return f == "deep"
+
+def move_pitch_cursor(cursor, key):
+    r, c = cursor
+    if key == "UP":
+        r = max(0, r - 1)
+    elif key == "DOWN":
+        r = min(3, r + 1)
+    elif key == "LEFT":
+        c = max(0, c - 1)
+    elif key == "RIGHT":
+        c = min(2, c + 1)
+    return (r, c)
+
+def cursor_to_plan(cursor):
+    r, c = cursor
+    if c == 0:
+        return "5"  # wide line intent
+    if r == 0:
+        return "4"
+    if r == 1:
+        return "3"
+    if r == 2:
+        return "1"
+    return "2"
+
+def delivery_from_type_and_bowler(bowler_type, type_key):
+    if bowler_type == "spin":
+        if type_key == "1":
+            return "OFF_SPIN"
+        if type_key == "2":
+            return "GOOGLY"
+        if type_key == "3":
+            return random.choice(["OFF_SPIN", "LEG_SPIN"])
+        return "FLIPPER"
+
+    # pace / medium
+    if type_key == "1":
+        return random.choice(["IN", "OUT"])
+    if type_key == "2":
+        return "BOUNCER"
+    if type_key == "3":
+        return random.choice(["OUT", "IN"])
+    return "YORKER"
 
 # =========================
 # COMMENTARY
@@ -960,6 +1006,68 @@ def run_timing_challenge(delivery, batter_skill, difficulty, bowler_pace_skill=7
         grade = "MISS"
     quality = max(0.0, 1.0 - abs(delta) / max(ideal_t, 0.01))
     return grade, quality
+
+
+def run_release_meter(bowler_skill, difficulty):
+    speed = max(0.006, 0.016 - (bowler_skill / 1000.0))
+    strict = {"Easy": 1.2, "Normal": 1.0, "Hard": 0.85}.get(difficulty, 1.0)
+    bar_len = 20
+    sweet_start = int(0.78 * bar_len)
+    sweet_end = int(0.90 * bar_len)
+    sweet_mid = (sweet_start + sweet_end) // 2
+
+    start = time.time()
+    locked_pos = None
+
+    center_line(ctext("RELEASE: Press [SPACE] again to lock", THEME_TEXT, Style.BRIGHT))
+    while True:
+        elapsed = time.time() - start
+        pos = min(bar_len - 1, int((elapsed / (1.2 / strict)) * (bar_len - 1)))
+        chars = []
+        for i in range(bar_len):
+            if i == pos:
+                chars.append("▌")
+            elif sweet_start <= i <= sweet_end:
+                chars.append("█")
+            else:
+                chars.append("░")
+        center_line(ctext(f"[{''.join(chars)}]", THEME_TEXT, Style.BRIGHT))
+
+        k = poll_key_nonblocking()
+        if k == "SPACE":
+            locked_pos = pos
+            break
+        if pos >= bar_len - 1:
+            break
+        time.sleep(speed)
+
+    if locked_pos is None:
+        return "MISS", 0.0, (1, 1)
+
+    delta = locked_pos - sweet_mid
+    ad = abs(delta)
+    if ad <= 1:
+        grade = "PERFECT"
+    elif ad <= 3:
+        grade = "GOOD"
+    else:
+        grade = "EARLY" if delta < 0 else "LATE"
+
+    quality = max(0.0, 1.0 - (ad / max(1, bar_len - 1)))
+    # early => tends shorter/wider, late => fuller/body-side
+    if grade == "PERFECT":
+        # Short visual feedback flash for a perfect lock-in.
+        for _ in range(2):
+            center_line(ctext("RELEASE LOCKED: PERFECT", Fore.GREEN, Style.BRIGHT))
+            time.sleep(0.12)
+        drift = (0, 0)
+    elif grade == "GOOD":
+        drift = (random.choice([0, 0, 1, -1]), random.choice([0, 0, 1, -1]))
+    elif grade == "EARLY":
+        drift = (1, -1)
+    else:
+        drift = (-1, 1)
+    return grade, quality, drift
 
 
 def apply_timing_and_zone(result, shot, timing_grade, timing_quality,
@@ -1762,173 +1870,147 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
                        field_setup=None, selected_zone=None,
                        timing_grade="-", timing_quality=1.0,
                        bowling_zone="1", target=None, free_hit=False,
-                       user_is_batting=True, aggression_level=3, loft_mode=False):
+                       user_is_batting=True, aggression_level=3, loft_mode=False,
+                       bowling_cursor=(2, 1), bowling_type="1", release_grade="-"):
     cur_ov = balls // 6
     cur_bl = balls % 6
-    crr    = round((score / balls) * 6, 2) if balls > 0 else 0.00
-    total  = overs * 6
-
-    def win_estimate():
-        if target is None:
-            prog = balls / total if total else 0
-            base = 45 + (crr - 7.0) * 7 - wickets * 2.4 + prog * 12
-            return max(5, min(95, int(round(base))))
-        balls_left = max(0, total - balls)
-        runs_left = max(0, target - score)
-        if balls_left <= 0:
-            return 100 if runs_left <= 0 else 0
-        req_rr = (runs_left * 6 / balls_left)
-        resource = (10 - wickets) * 4 + (balls_left / 6) * 2
-        base = 58 - (req_rr - crr) * 9 + resource * 0.9
-        return max(1, min(99, int(round(base))))
-
-    def timing_scale(label):
-        marks = {"PERFECT": "P", "GOOD": "G", "AVERAGE": "A", "BAD": "B", "MISS": "M"}
-        active = marks.get(label, "")
-        letters = []
-        for ch in ["P", "G", "A", "B", "M"]:
-            token = f"[{ch}]" if ch == active else ch
-            if ch == "P" and ch == active:
-                token = ctext("[P]", Fore.GREEN, Style.BRIGHT)
-            elif ch == "M" and ch == active:
-                token = ctext("[M]", Fore.RED, Style.BRIGHT)
-            letters.append(token)
-        return " > ".join(letters)
+    crr = round((score / balls) * 6, 2) if balls > 0 else 0.00
+    total = overs * 6
 
     clear()
     draw_divider("─")
-
-    if target is None:
-        proj_total = int(round(crr * overs)) if balls > 0 else overs * 8
-    else:
+    if target is not None:
         balls_left = max(0, total - balls)
         runs_left = max(0, target - score)
-        req_rr = round((runs_left * 6 / balls_left), 2) if balls_left > 0 else 0.00
-        proj_total = f"CHASE {runs_left} OFF {balls_left}"
-
-    win_pct = win_estimate()
-    left = ctext(f"{batting_team[:3].upper()} {score}-{wickets} ({cur_ov}.{cur_bl})", Fore.CYAN, Style.BRIGHT)
-    mid = ctext(f"RR: {crr:.2f}", Fore.WHITE, Style.BRIGHT)
-    if target is None:
-        right = ctext(f"PHASE: {('POWERPLAY' if (balls/total if total else 0) <= 0.33 else 'MIDDLE/DEATH')}", Fore.WHITE, Style.BRIGHT)
+        head = f"{batting_team[:3].upper()} {score}-{wickets} ({cur_ov}.{cur_bl})  •  RR: {crr:.2f}  •  TGT: {target} ({runs_left} off {balls_left})"
     else:
-        balls_left = max(0, total - balls)
-        runs_left = max(0, target - score)
-        right = ctext(f"TGT: {target} ({runs_left} off {balls_left})", Fore.WHITE, Style.BRIGHT)
-    center_line(pad_visible(left, 24) + "  •  " + pad_visible(mid, 14) + "  •  " + pad_visible(right, 34))
+        phase = "POWERPLAY" if (balls / total if total else 0) <= 0.33 else "MIDDLE"
+        head = f"{batting_team[:3].upper()} {score}-{wickets} ({cur_ov}.{cur_bl})  •  RR: {crr:.2f}  •  PHASE: {phase}"
+    center_line(ctext(head, Fore.CYAN, Style.BRIGHT))
     draw_divider("─")
 
-    s_r  = batter_runs.get(striker, 0)
-    s_b  = batter_balls.get(striker, 0)
+    s_r = batter_runs.get(striker, 0)
+    s_b = batter_balls.get(striker, 0)
     ns_r = batter_runs.get(non_striker, 0)
     ns_b = batter_balls.get(non_striker, 0)
-    bst  = bowler_stats.get(current_bowler, {"balls": 0, "runs": 0, "wickets": 0})
+    bst = bowler_stats.get(current_bowler, {"balls": 0, "runs": 0, "wickets": 0})
+    bow_balls = bst.get("balls", 0)
+    bow_runs = bst.get("runs", 0)
+    bow_wkts = bst.get("wickets", 0)
+    bow_ov = f"{bow_balls // 6}.{bow_balls % 6}"
+    eco = round((bow_runs * 6 / bow_balls), 2) if bow_balls else 0.0
 
-    bow_balls = bst.get("balls",   0)
-    bow_runs  = bst.get("runs",    0)
-    bow_wkts  = bst.get("wickets", 0)
-    bow_ov    = f"{bow_balls // 6}.{bow_balls % 6}"
+    # Over history formatting (last 5)
+    hist = over_log[-5:]
+    hist_fmt = []
+    for token in hist:
+        if token == "W":
+            hist_fmt.append(ctext("W", Fore.RED, Style.BRIGHT))
+        elif token in ("•", "0"):
+            hist_fmt.append(ctext(".", THEME_TEXT, Style.DIM))
+        elif token in ("4", "6"):
+            hist_fmt.append(ctext(token, Fore.YELLOW, Style.BRIGHT))
+        else:
+            hist_fmt.append(ctext(str(token), THEME_TEXT))
+    hist_line = " ".join(hist_fmt) if hist_fmt else ". . . . ."
 
-    over_runs = 0
-    for sym in over_log:
-        if sym.isdigit():
-            over_runs += int(sym)
-        elif sym in ("wd", "nb"):
-            over_runs += 1
-    over_sym = " ".join(over_log) if over_log else "-"
-    momentum_val = max(0, min(100, int(partnership_runs * 2 + over_runs * 8 + (10 - wickets) * 3)))
-    momentum_txt = "STEADY"
-    if momentum_val >= 70:
-        momentum_txt = "SURGE"
-    elif momentum_val <= 30:
-        momentum_txt = "PRESSURE"
-
-    timing_label, timing_note = timing_feedback(timing_grade, timing_quality)
-    timing_color = Fore.RED if timing_label in ("MISS", "BAD") else (Fore.GREEN if timing_label == "PERFECT" else Fore.CYAN)
-
-    plan_key = bowling_zone if bowling_zone in BOWLING_PLANS else "1"
-    plan = BOWLING_PLANS.get(plan_key, BOWLING_PLANS["1"])
-
+    # Tier 2: left and right modules
     if user_is_batting:
-        left_panel = [
-            ctext(f"{short(lineup[striker])}* {s_r:>3} ({s_b:02d})", Fore.WHITE, Style.BRIGHT),
-            ctext(f"{short(lineup[non_striker])}  {ns_r:>3} ({ns_b:02d})", Fore.WHITE, Style.DIM),
+        left_lines = [
+            ctext(f"{short(lineup[striker])}* {s_r} ({s_b:02d})", THEME_TEXT, Style.BRIGHT),
+            ctext(f"{short(lineup[non_striker])}  {ns_r} ({ns_b:02d})", THEME_TEXT, Style.DIM),
             "",
-            ctext(f"PARTNER:   {partnership_runs:>3}", Fore.WHITE),
-            ctext(f"LAST OVR:  {over_sym}", Fore.WHITE),
+            ctext(f"PARTNER: {partnership_runs}", THEME_TEXT),
+            ctext(f"LAST OVR: {hist_line}", THEME_TEXT),
+        ]
+        focus_zone = selected_zone if selected_zone in FIELD_ZONES else "5"
+        def zfmt(z):
+            return ctext(f"▶[ {z} ]◀", Fore.CYAN, Style.BRIGHT) if z == focus_zone else ctext(f"({z})", THEME_TEXT, Style.DIM)
+        right_lines = [
+            "   " + zfmt("3") + "    \\   /    " + zfmt("1"),
+            "   " + zfmt("9") + "     \\ /     " + zfmt("2"),
+            "   " + zfmt("8") + " ─── [ PITCH ] ─── " + zfmt("6"),
+            "   " + zfmt("7") + "     / \\     " + zfmt("4"),
+            "            " + zfmt("5"),
+        ]
+        left_title, right_title = "BATSMAN", "FIELD RADAR"
+    else:
+        left_lines = [
+            ctext(f"{short(current_bowler)}* {bow_ov}-{bow_runs}-{bow_wkts}", THEME_TEXT, Style.BRIGHT),
+            ctext(f"ECONOMY: {eco:.2f}", THEME_TEXT, Style.DIM),
+            "",
+            ctext(f"STRIKER: {short(lineup[striker])} ({s_r})", THEME_TEXT),
+            ctext(f"OVER: {hist_line}", THEME_TEXT),
+        ]
+        right_lines = [
+            ctext("SET: ATTACKING", THEME_TEXT),
+            ctext("BIAS: OFF-SIDE", THEME_TEXT),
+            "",
+            ctext("[1] SLIP   [6] FINE", THEME_TEXT),
+            ctext("[2] COVER  [7] MID-ON", THEME_TEXT),
+        ]
+        left_title, right_title = "BOWLER", "FIELD TACTICS"
+
+    draw_dual_panels(left_title, left_lines, right_title, right_lines,
+                     panel_width=min(44, max(34, (term_width() - 8) // 2)))
+    draw_divider("─")
+
+    # Tier 3: action module
+    timing_label, _ = timing_feedback(timing_grade, timing_quality)
+    if user_is_batting:
+        focus_zone = selected_zone if selected_zone in FIELD_ZONES else "5"
+        gap_open = zone_gap_state(field_setup, focus_zone)
+        gap_text = ctext("WIDELY OPEN (+15% RUNS)", Fore.GREEN, Style.BRIGHT) if gap_open else ctext("GUARDED", Fore.RED, Style.BRIGHT)
+        action_left = [
+            ctext(f"POWER: {progress_bar(aggression_level, 5, 12)} {'AGGRESSIVE' if aggression_level >= 4 else 'CONTROLLED'}", THEME_TEXT),
+            ctext(f"TYPE:  {'LOFT' if loft_mode else 'FRONT-FOOT'}", THEME_TEXT),
+        ]
+        action_right = [
+            ctext(f"AIM: ({focus_zone}) {FIELD_ZONES.get(focus_zone, 'STRAIGHT').upper()}", THEME_TEXT),
+            ctext(f"GAP: {gap_text}", THEME_TEXT),
         ]
     else:
-        left_panel = [
-            ctext(f"{short(current_bowler)}  {bow_runs}-{bow_wkts} ({bow_ov})", Fore.WHITE, Style.BRIGHT),
-            ctext(f"PLAN: {plan['name']} [{plan_key}]", Fore.CYAN, Style.BRIGHT),
-            "",
-            ctext(f"HINT: {plan['hint']}", Fore.WHITE),
-            ctext(f"LAST OVR: {over_sym}", Fore.WHITE),
+        r, c = bowling_cursor
+        row_name = BOWL_ROWS[r]
+        col_name = BOWL_COLS[c]
+        row_labels = [ctext(f"({name})", Fore.CYAN if i == r else THEME_TEXT, Style.BRIGHT if i == r else Style.DIM) for i, name in enumerate(BOWL_ROWS)]
+        col_labels = [ctext(f"({name})", Fore.CYAN if i == c else THEME_TEXT, Style.BRIGHT if i == c else Style.DIM) for i, name in enumerate(BOWL_COLS)]
+
+        grid = [
+            f"      {pad_visible(col_labels[0], 10)}  {pad_visible(col_labels[1], 10)}  {pad_visible(col_labels[2], 10)}",
+            f"{pad_visible(row_labels[0], 9)} |{' ' * (2 + c * 12)}{ctext('⊙', Fore.CYAN, Style.BRIGHT) if r == 0 else ' '}|",
+            f"{pad_visible(row_labels[1], 9)} |{' ' * (2 + c * 12)}{ctext('⊙', Fore.CYAN, Style.BRIGHT) if r == 1 else ' '}|",
+            f"{pad_visible(row_labels[2], 9)} |{' ' * (2 + c * 12)}{ctext('⊙', Fore.CYAN, Style.BRIGHT) if r == 2 else ' '}|",
+            f"{pad_visible(row_labels[3], 9)} |{' ' * (2 + c * 12)}{ctext('⊙', Fore.CYAN, Style.BRIGHT) if r == 3 else ' '}|",
+        ]
+        action_left = grid
+        action_right = [
+            ctext(f"TYPE [{bowling_type}]: {BOWLING_PLANS.get(bowling_type, BOWLING_PLANS['1'])['name']}", THEME_TEXT),
+            ctext(f"TARGET: {row_name} / {col_name}", Fore.CYAN, Style.BRIGHT),
+            ctext(f"RELEASE: {progress_bar(int(max(1, min(10, timing_quality * 10))), 10, 10)}", THEME_TEXT),
+            ctext(f"> {release_grade} <", Fore.GREEN if release_grade == "PERFECT" else (Fore.CYAN if release_grade == "GOOD" else Fore.YELLOW), Style.BRIGHT),
         ]
 
-    focus_zone = selected_zone if selected_zone in FIELD_ZONES else "5"
-    def zfmt(z):
-        if z == focus_zone:
-            return ctext(f"▶[ {z} ]◀", Fore.CYAN, Style.BRIGHT)
-        return ctext(f"({z})", Fore.WHITE, Style.DIM)
-
-    right_panel = [
-        "   " + zfmt("3") + "    \\   /    " + zfmt("1"),
-        "   " + zfmt("9") + "     \\ /     " + zfmt("2"),
-        "   " + zfmt("8") + " ─── [ PITCH ] ─── " + zfmt("6"),
-        "   " + zfmt("7") + "     / \\     " + zfmt("4"),
-        "            " + zfmt("5"),
-    ]
-
-    draw_dual_panels("BATSMAN" if user_is_batting else "BOWLER", left_panel,
-                     "FIELD RADAR" if user_is_batting else "FIELD TACTICS", right_panel,
+    draw_dual_panels("SHOT SELECT" if user_is_batting else "LINE & LENGTH",
+                     action_left,
+                     "EXECUTION",
+                     action_right,
                      panel_width=min(44, max(34, (term_width() - 8) // 2)))
 
-    phase = "POWERPLAY"
-    pno = balls // 6 + 1
-    if total and (balls / total) > 0.33:
-        phase = "MIDDLE"
-    if total and (balls / total) > 0.80:
-        phase = "DEATH"
-
-    spin_tag = int(round(PITCH_TYPES.get(pitch, {}).get("spin_mod", 0) * 20))
-    swing_tag = int(round(WEATHER_CONDITIONS.get(weather, {}).get("swing_mod", 0) * 10))
-
-    bottom_left = [
-        "",
-        ctext(f"PARTNERSHIP: {partnership_runs} ({partnership_runs})", Fore.WHITE),
-        ctext(f"LAST OVER : {over_sym}", Fore.WHITE),
-        ctext(f"CURRENT PH : {phase} [{pno}/{overs}]", Fore.WHITE),
-    ]
-
-    bottom_right = [
-        "",
-        ctext(f"PITCH:   {pitch} (Spin {spin_tag:+d})", Fore.WHITE),
-        ctext(f"WEATHER: {weather} (Swing {swing_tag:+d})", Fore.WHITE),
-        ctext(f"BOWLER:  {short(current_bowler)} ({bow_ov}, {bow_runs}-{bow_wkts})", Fore.WHITE),
-    ]
-
-    gap_open = zone_gap_state(field_setup, focus_zone)
-    gap_text = ctext("WIDELY OPEN (+15% RUNS)", Fore.GREEN, Style.BRIGHT) if gap_open else ctext("GUARDED (HIGH CATCH RISK)", Fore.RED, Style.BRIGHT)
-    shot_type = "LOFT" if loft_mode else "FRONT-FOOT"
-    power_meter = progress_bar(aggression_level, 5, 12)
-
-    action_left = [
-        ctext(f"POWER: {power_meter} {'AGGRESSIVE' if aggression_level >= 4 else 'CONTROLLED'}", Fore.WHITE),
-        ctext(f"TYPE:  {shot_type}", Fore.WHITE),
-    ]
-    action_right = [
-        ctext(f"AIM:  ({focus_zone}) {FIELD_ZONES.get(focus_zone, 'Straight').upper()}", Fore.WHITE),
-        ctext(f"GAP:  {gap_text}", Fore.WHITE),
-    ]
-    draw_dual_panels("SHOT SELECT", action_left, "EXECUTION", action_right,
-                     panel_width=min(44, max(34, (term_width() - 8) // 2)))
-
-    center_line(ctext(f"TIMING: {progress_bar(int(max(1, min(10, timing_quality * 10))), 10, 10)}", THEME_TEXT, Style.BRIGHT))
-    if timing_label == "PERFECT":
-        center_line(ctext("> PERFECT <", Fore.CYAN, Style.BRIGHT))
+    # Tier 4: footer
+    draw_divider("─")
+    if user_is_batting:
+        center_line(ctext("[W/A/S/D] AIM | [Q/E] AGGRESSION | [L] LOFT | [SPACE] TIME | [ESC]", THEME_TEXT, Style.BRIGHT))
+        if timing_label == "PERFECT":
+            center_line(ctext("> PERFECT <", Fore.CYAN, Style.BRIGHT))
+        else:
+            center_line(ctext(f"> {timing_label} <", THEME_TEXT, Style.DIM))
     else:
-        center_line(ctext(f"> {timing_label} <", timing_color, Style.BRIGHT))
+        center_line(ctext("[1-4] TYPE | [ARROWS] TARGET | [SPACE] RELEASE | [ESC]", THEME_TEXT, Style.BRIGHT))
+        if release_grade == "PERFECT":
+            center_line(ctext("RELEASE PERFECT", Fore.GREEN, Style.BRIGHT))
+        elif release_grade in ("EARLY", "LATE"):
+            center_line(ctext(f"RELEASE {release_grade}", Fore.YELLOW, Style.BRIGHT))
 
     if free_hit:
         center_line(ctext("ALERT: FREE HIT", Fore.RED, Style.BRIGHT))
@@ -2051,6 +2133,9 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
     bowling_zone     = "1"
     aggression_level = 3
     loft_mode        = False
+    bowling_cursor   = (2, 1)
+    bowling_type     = "1"
+    release_grade    = "-"
 
     def ensure_bowler(name):
         if name not in bowler_stats:
@@ -2077,7 +2162,8 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
             batter_runs, batter_balls, current_bowler, bowler_stats,
             over_log, partnership_runs, pitch, weather, difficulty, personality,
             field_setup, selected_zone, timing_grade, timing_quality,
-            bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
+            bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode,
+            bowling_cursor, bowling_type, release_grade
         )
 
         # Show correct commands based on current bowler type
@@ -2100,6 +2186,7 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
         shot = delivery = None
         timing_quality = 1.0
         timing_grade = "-"
+        release_grade = "-"
         if user_is_batting:
             while shot is None:
                 k = get_key()
@@ -2177,27 +2264,25 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
             # Computer bowler picks delivery based on their type
             delivery = choose_ai_delivery(b_type, balls, total_balls, target, score, personality)
         else:
-            bowling_zone = choose_bowling_zone()
-            if b_type == "spin":
-                while delivery is None:
-                    k = get_key()
-                    if k == "ESC":
-                        pause_game()
-                        continue
-                    if   k in ("LEFT", "A"):  delivery = "OFF_SPIN"
-                    elif k in ("RIGHT", "D"): delivery = "LEG_SPIN"
-                    elif k in ("UP", "W"):    delivery = "FLIPPER"
-                    elif k in ("DOWN", "S"):  delivery = "GOOGLY"
-            else:
-                while delivery is None:
-                    k = get_key()
-                    if k == "ESC":
-                        pause_game()
-                        continue
-                    if   k in ("LEFT", "A"):  delivery = "IN"
-                    elif k in ("RIGHT", "D"): delivery = "OUT"
-                    elif k in ("UP", "W"):    delivery = "YORKER"
-                    elif k in ("DOWN", "S"):  delivery = "BOUNCER"
+            while delivery is None:
+                k = get_key()
+                if k == "ESC":
+                    pause_game()
+                    continue
+                if k in ("1", "2", "3", "4"):
+                    bowling_type = k
+                    continue
+                if k in ("UP", "DOWN", "LEFT", "RIGHT"):
+                    bowling_cursor = move_pitch_cursor(bowling_cursor, k)
+                    continue
+                if k == "SPACE":
+                    release_grade, timing_quality, drift = run_release_meter(get_stat(current_bowler, "bowl_skill", 75), difficulty)
+                    dr, dc = drift
+                    r, c = bowling_cursor
+                    effective_cursor = (max(0, min(3, r + dr)), max(0, min(2, c + dc)))
+                    bowling_zone = cursor_to_plan(effective_cursor)
+                    timing_grade = release_grade
+                    delivery = delivery_from_type_and_bowler(b_type, bowling_type)
             shot = choose_ai_shot(delivery, target, score, balls, total_balls, wickets, difficulty, personality)
 
         print()
