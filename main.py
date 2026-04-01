@@ -1,66 +1,11 @@
-# Modern field view using Rich
-
-# --- Rich Table-based field view ---
-from rich.table import Table
-from rich.panel import Panel
-from rich.align import Align
-from rich.console import Console
-
-console = Console()
-
-def draw_modern_field(selected_zone=None):
-    zones = {
-        "1": "Third Man", "2": "Cover", "3": "Mid-Off",
-        "4": "Mid-Wicket", "5": "Straight", "6": "Fine Leg",
-        "7": "Mid-On", "8": "Long-On", "9": "Long-Off"
-    }
-
-    def fmt(zid):
-        """Returns a fixed-width styled label to prevent shifting."""
-        label = zones[zid]
-        style = "bold reverse yellow" if selected_zone == zid else "bold cyan"
-        return f"[{zid}] [{style}]{label:<12}[/]"
-
-    # Create a 3-column grid for perfect alignment
-    # [Left Labels]  [The Pitch/Center]  [Right Labels]
-    field_grid = Table.grid(expand=True)
-    field_grid.add_column(justify="right", ratio=1)
-    field_grid.add_column(justify="center", ratio=1)
-    field_grid.add_column(justify="left", ratio=1)
-
-    # Pitch Art (Static height)
-    pitch_top = "[white]┌───────────┐[/]"
-    pitch_mid = "[white]│[/][yellow]   PITCH   [/][white]│[/]"
-    pitch_ball = "[white]│[/][yellow]    [red]●[/]      [/][white]│[/]"
-    pitch_bot = "[white]└───────────┘[/]"
-
-    # Building the Rows
-    field_grid.add_row("", "[dim white]==== BOUNDARY ====[/]", "")
-    field_grid.add_row(fmt("1"), "[dim green]. . . . .[/]", fmt("6"))
-    field_grid.add_row("", "[dim green]. . .[/]", "")
-    field_grid.add_row(fmt("2"), pitch_top, fmt("4"))
-    field_grid.add_row("", pitch_ball, "")
-    field_grid.add_row(fmt("3"), pitch_mid, fmt("7"))
-    field_grid.add_row("", pitch_bot, "")
-    field_grid.add_row(fmt("9"), "[dim green]. . .[/]", fmt("8"))
-    field_grid.add_row("", "[dim white]==== PITCH VIEW ====[/]", "")
-
-    # Wrap in a Panel
-    arena_panel = Panel(
-        Align.center(field_grid),
-        title="[bold green]TRIKET MATCH ARENA[/]",
-        border_style="blue",
-        padding=(1, 1)
-    )
-
-    console.print(arena_panel)
-
 import os
 import random
 import sys
 import time
 import json
 import math
+import shutil
+import re
 from typing import Any
 
 # Colorama for colored CLI output
@@ -87,6 +32,274 @@ def success_text(text):
 
 def info_text(text):
     return ctext(text, Fore.YELLOW, Style.BRIGHT)
+
+def term_width():
+    return max(88, shutil.get_terminal_size((108, 36)).columns)
+
+def term_height():
+    return max(30, shutil.get_terminal_size((108, 36)).lines)
+
+def center_line(line):
+    width = term_width()
+    visible = len(ANSI_RE.sub("", str(line))) if "ANSI_RE" in globals() else len(str(line))
+    pad = max(0, (width - visible) // 2)
+    print(" " * pad + line)
+
+def draw_center_box(lines, width=84, title=None):
+    width = min(width, term_width() - 4)
+    top = "╔" + "═" * width + "╗"
+    bot = "╚" + "═" * width + "╝"
+    center_line(ctext(top, Fore.BLUE, Style.BRIGHT))
+    if title:
+        t = f"[ {title} ]"
+        center_line(ctext("║" + t.center(width) + "║", Fore.CYAN, Style.BRIGHT))
+        center_line(ctext("╠" + "═" * width + "╣", Fore.BLUE, Style.BRIGHT))
+    for line in lines:
+        content = str(line)
+        if len(content) > width:
+            content = content[:width]
+        center_line(ctext("║" + content.ljust(width) + "║", Fore.WHITE))
+    center_line(ctext(bot, Fore.BLUE, Style.BRIGHT))
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+def visible_len(text):
+    return len(ANSI_RE.sub("", str(text)))
+
+def pad_visible(text, width):
+    text = str(text)
+    extra = max(0, width - visible_len(text))
+    return text + (" " * extra)
+
+def progress_bar(value, total=100, width=10):
+    if total <= 0:
+        total = 1
+    ratio = max(0.0, min(1.0, value / total))
+    filled = int(round(ratio * width))
+    return "[" + ("█" * filled) + ("░" * (width - filled)) + "]"
+
+def normalize_terminal_viewport(min_cols=110, min_lines=34):
+    """Only enlarge very small Windows terminals; avoid hard-locking user size."""
+    if os.name != "nt":
+        return
+    cols = term_width()
+    lines = term_height()
+    if cols < min_cols or lines < min_lines:
+        os.system(f"mode con: cols={max(cols, min_cols)} lines={max(lines, min_lines)}")
+
+def draw_dual_panels(left_title, left_lines, right_title, right_lines, panel_width=48, gap=4):
+    rows = max(len(left_lines), len(right_lines))
+    left = left_lines + [""] * (rows - len(left_lines))
+    right = right_lines + [""] * (rows - len(right_lines))
+    top = ctext("┏" + "━" * panel_width + "┓", Fore.CYAN, Style.BRIGHT)
+    mid = ctext("┣" + "━" * panel_width + "┫", Fore.CYAN, Style.BRIGHT)
+    bot = ctext("┗" + "━" * panel_width + "┛", Fore.CYAN, Style.BRIGHT)
+    sep = " " * gap
+
+    center_line(top + sep + top)
+    ltitle = pad_visible(ctext(f" [ {left_title} ]", Fore.CYAN, Style.BRIGHT), panel_width)
+    rtitle = pad_visible(ctext(f" [ {right_title} ]", Fore.CYAN, Style.BRIGHT), panel_width)
+    center_line(
+        ctext("┃", Fore.CYAN, Style.BRIGHT) + ltitle + ctext("┃", Fore.CYAN, Style.BRIGHT)
+        + sep +
+        ctext("┃", Fore.CYAN, Style.BRIGHT) + rtitle + ctext("┃", Fore.CYAN, Style.BRIGHT)
+    )
+    center_line(mid + sep + mid)
+
+    for lrow, rrow in zip(left, right):
+        ltxt = pad_visible(lrow, panel_width)
+        rtxt = pad_visible(rrow, panel_width)
+        center_line(
+            ctext("┃", Fore.CYAN, Style.BRIGHT) + ltxt + ctext("┃", Fore.CYAN, Style.BRIGHT)
+            + sep +
+            ctext("┃", Fore.CYAN, Style.BRIGHT) + rtxt + ctext("┃", Fore.CYAN, Style.BRIGHT)
+        )
+
+    center_line(bot + sep + bot)
+
+def print_header(subtitle="RETRO ARCADE CRICKET"):
+    clear()
+    center_line(ctext("████████╗██████╗ ██╗██╗  ██╗███████╗████████╗", Fore.CYAN, Style.BRIGHT))
+    center_line(ctext("╚══██╔══╝██╔══██╗██║██║ ██╔╝██╔════╝╚══██╔══╝", Fore.CYAN, Style.BRIGHT))
+    center_line(ctext("   ██║   ██████╔╝██║█████╔╝ █████╗     ██║   ", Fore.CYAN, Style.BRIGHT))
+    center_line(ctext("   ██║   ██╔══██╗██║██╔═██╗ ██╔══╝     ██║   ", Fore.CYAN, Style.BRIGHT))
+    center_line(ctext("   ██║   ██║  ██║██║██║  ██╗███████╗   ██║   ", Fore.CYAN, Style.BRIGHT))
+    center_line(ctext("   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚══════╝   ╚═╝   ", Fore.CYAN, Style.BRIGHT))
+    center_line(ctext(f"{subtitle}", Fore.YELLOW, Style.BRIGHT))
+    print()
+
+def draw_ladder_screen(title, options, selected_idx, accent=Fore.YELLOW,
+                       subtitle="-- RETRO ARCADE CRICKET --",
+                       footer="[W/S] NAVIGATE  |  [ENTER] SELECT  |  [ESC] BACK"):
+    print_header(title)
+    center_line(ctext(subtitle, accent, Style.BRIGHT))
+    print()
+    for i, opt in enumerate(options, 1):
+        selected = (i - 1) == selected_idx
+        if selected:
+            line = ctext(f"[[ {i:02d} ]] {opt}", accent, Style.BRIGHT)
+        else:
+            line = ctext(f"   {i:02d}   {opt}", Fore.WHITE, Style.DIM)
+        center_line(line)
+    print()
+    center_line(ctext(footer, accent, Style.BRIGHT))
+
+def arrow_menu(title, options, hint="Use UP/DOWN and ENTER"):
+    idx = 0
+    while True:
+        draw_ladder_screen(title, options, idx, accent=Fore.YELLOW,
+                           subtitle="-- SELECTION --",
+                           footer="[W/S] NAVIGATE  |  [ENTER] SELECT  |  [ESC] BACK")
+        center_line(ctext(hint, Fore.WHITE, Style.DIM))
+        k = get_key()
+        if k in ("UP", "W"):
+            idx = (idx - 1) % len(options)
+        elif k in ("DOWN", "S"):
+            idx = (idx + 1) % len(options)
+        elif k in ("ENTER",):
+            return idx
+
+def draw_main_menu_screen(selected_idx, settings_preview=None):
+    clear()
+    logo_lines = [
+        "████████╗██████╗ ██╗██╗  ██╗███████╗████████╗",
+        "╚══██╔══╝██╔══██╗██║██║ ██╔╝██╔════╝╚══██╔══╝",
+        "   ██║   ██████╔╝██║█████╔╝ █████╗     ██║   ",
+        "   ██║   ██╔══██╗██║██╔═██╗ ██╔══╝     ██║   ",
+        "   ██║   ██║  ██║██║██║  ██╗███████╗   ██║   ",
+        "   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚══════╝   ╚═╝   ",
+    ]
+
+    used_lines = 0
+    print()
+    used_lines += 1
+    for line in logo_lines:
+        center_line(ctext(line, Fore.RED, Style.BRIGHT))
+        used_lines += 1
+    print()
+    used_lines += 1
+
+    anchor = "──── RETRO ARCADE CRICKET ────"
+    center_line(ctext(anchor, Fore.RED, Style.BRIGHT))
+    print("\n")
+    used_lines += 2
+
+    options = ["QUICK MATCH", "RECORDS", "SETTINGS", "QUIT GAME"]
+    for i, label in enumerate(options, 1):
+        selected = (i - 1) == selected_idx
+        if selected:
+            pointer = ctext("\033[5m[[\033[0m", Fore.RED, Style.BRIGHT) + \
+                      ctext(f" {i:02d} ", Fore.WHITE, Style.BRIGHT) + \
+                      ctext("\033[5m]]\033[0m", Fore.RED, Style.BRIGHT)
+            item = pointer + " " + ctext(label, Fore.RED, Style.BRIGHT)
+        else:
+            item = ctext(f"   {i:02d}   {label}", Fore.WHITE, Style.DIM)
+        center_line(item)
+        used_lines += 1
+
+    print("\n")
+    used_lines += 2
+    if settings_preview:
+        center_line(ctext(f"CURRENT: {settings_preview}", Fore.RED, Style.DIM))
+        print()
+        used_lines += 2
+
+    footer = ctext("[W/S] NAVIGATE  |  [ENTER] EXECUTE  |  [ESC] SYSTEM", Fore.RED, Style.BRIGHT)
+    remaining = term_height() - used_lines - 2
+    for _ in range(max(0, remaining)):
+        print()
+
+    center_line(footer)
+
+TEAM_SELECT_HEADER_LINES = [
+    "████████╗███████╗ █████╗ ███╗   ███╗    ███████╗███████╗██╗     ███████╗ ██████╗████████╗",
+    "╚══██╔══╝██╔════╝██╔══██╗████╗ ████║    ██╔════╝██╔════╝██║     ██╔════╝██╔════╝╚══██╔══╝",
+    "   ██║   █████╗  ███████║██╔████╔██║    ███████╗█████╗  ██║     █████╗  ██║        ██║   ",
+    "   ██║   ██╔══╝  ██╔══██║██║╚██╔╝██║    ╚════██║██╔══╝  ██║     ██╔══╝  ██║        ██║   ",
+    "   ██║   ███████╗██║  ██║██║ ╚═╝ ██║    ███████║███████╗███████╗███████╗╚██████╗   ██║   ",
+    "   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝    ╚══════╝╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ",
+]
+
+def draw_ascii_header(lines, color=Fore.CYAN, fixed_height=6):
+    padded = list(lines[:fixed_height]) + [""] * max(0, fixed_height - len(lines))
+    for line in padded:
+        center_line(ctext(line, color, Style.BRIGHT))
+
+def draw_team_select_screen(selected_idx, teams):
+    clear()
+    used_lines = 0
+    print()
+    used_lines += 1
+
+    draw_ascii_header(TEAM_SELECT_HEADER_LINES, color=Fore.YELLOW, fixed_height=6)
+    used_lines += 6
+
+    print()
+    used_lines += 1
+    center_line(ctext("── ASSEMBLE YOUR SQUAD ──", Fore.YELLOW, Style.BRIGHT))
+    print("\n")
+    used_lines += 2
+
+    for i, team in enumerate(teams, 1):
+        selected = (i - 1) == selected_idx
+        if selected:
+            line = ctext(f"[[ {i:02d} ]] {team.upper()}", Fore.YELLOW, Style.BRIGHT)
+        else:
+            line = ctext(f"   {i:02d}   {team.upper()}", Fore.WHITE, Style.DIM)
+        center_line(line)
+        used_lines += 1
+
+    footer = ctext("[TRIKET // v2.6]  [W/S] NAVIGATE   |   [ENTER] SELECT   |   [ESC] BACK", Fore.YELLOW, Style.BRIGHT)
+    remaining = term_height() - used_lines - 2
+    for _ in range(max(0, remaining)):
+        print()
+    center_line(footer)
+
+ZONE_GRID = [
+    ["1", "2", "3"],
+    ["6", "5", "4"],
+    ["7", "8", "9"],
+]
+
+ZONE_POS = {z: (r, c) for r, row in enumerate(ZONE_GRID) for c, z in enumerate(row)}
+
+def move_zone(selected, key):
+    r, c = ZONE_POS.get(selected, (1, 1))
+    if key == "LEFT":
+        c = max(0, c - 1)
+    elif key == "RIGHT":
+        c = min(2, c + 1)
+    elif key == "UP":
+        r = max(0, r - 1)
+    elif key == "DOWN":
+        r = min(2, r + 1)
+    return ZONE_GRID[r][c]
+
+def draw_modern_field(selected_zone=None):
+    selected_zone = selected_zone or "5"
+
+    def ztxt(z, name):
+        if selected_zone == z:
+            return ctext(f"▶{z}:{name}", Fore.YELLOW, Style.BRIGHT)
+        return ctext(f" {z}:{name}", Fore.CYAN, Style.NORMAL)
+
+    lines = [
+        "",
+        ctext("                 RETRO ARENA VIEW", Fore.GREEN, Style.BRIGHT),
+        "",
+        f"      {ztxt('1', '3rd')}         {ztxt('2', 'Cover')}       {ztxt('3', 'MidOff')}",
+        "",
+        "           . . . . . . . . . BOUNDARY . . . . . . . . .",
+        "",
+        f"      {ztxt('6', 'Fine')}         {ztxt('5', 'Straight')}   {ztxt('4', 'MidWkt')}",
+        "",
+        "                     [  P I T C H  ]",
+        "",
+        f"      {ztxt('7', 'MidOn')}       {ztxt('8', 'LongOn')}     {ztxt('9', 'LongOff')}",
+        "",
+        ctext("       Arrows move zone. Enter confirms. Number keys 1-9 also work.", Fore.MAGENTA),
+    ]
+    draw_center_box(lines, title="MATCH ARENA")
 
 # =========================
 # TEAMS
@@ -948,17 +1161,17 @@ def pause_game():
 
 
 def choose_target_zone(field_setup):
-    print("  BATTING TARGET: Choose zone [1-9]. [ENTER] keeps center (5).")
     selected = "5"
-    draw_modern_field(selected_zone=selected)
     while True:
+        print_header("BATTING TARGET")
+        draw_modern_field(selected_zone=selected)
         k = get_key()
+        if k in ("LEFT", "RIGHT", "UP", "DOWN"):
+            selected = move_zone(selected, k)
+            continue
         if k in FIELD_ZONES:
             selected = k
-            clear()
-            print("  BATTING TARGET: Choose zone [1-9]. [ENTER] keeps center (5).")
-            draw_modern_field(selected_zone=selected)
-            return k
+            continue
         if k == "ENTER":
             return selected
         if k == "ESC":
@@ -966,17 +1179,17 @@ def choose_target_zone(field_setup):
 
 
 def choose_bowling_zone():
-    print("  BOWLING PLAN: Choose zone [1-9] for line/length intent. [ENTER] keeps 5.")
     selected = "5"
-    draw_modern_field(selected_zone=selected)
     while True:
+        print_header("BOWLING PLAN")
+        draw_modern_field(selected_zone=selected)
         k = get_key()
+        if k in ("LEFT", "RIGHT", "UP", "DOWN"):
+            selected = move_zone(selected, k)
+            continue
         if k in FIELD_ZONES:
             selected = k
-            clear()
-            print("  BOWLING PLAN: Choose zone [1-9] for line/length intent. [ENTER] keeps 5.")
-            draw_modern_field(selected_zone=selected)
-            return k
+            continue
         if k == "ENTER":
             return selected
         if k == "ESC":
@@ -1035,10 +1248,7 @@ def safe_input(prompt, default=""):
         return default
 
 def draw_box(lines, width=76):
-    print("+" + "-" * width + "+")
-    for line in lines:
-        print("| " + line.ljust(width - 2) + " |")
-    print("+" + "-" * width + "+")
+    draw_center_box(lines, width=width)
 
 # =========================
 # KEY READER
@@ -1082,53 +1292,28 @@ def get_key():
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 # =========================
-# HEADER
-# =========================
-
-def print_header():
-    print("=" * 78)
-    print(r"""
- ████████╗██████╗ ██╗ ██████╗██╗  ██╗███████╗████████╗
- ╚══██╔══╝██╔══██╗██║██╔════╝██║ ██╔╝██╔════╝╚══██╔══╝
-    ██║   ██████╔╝██║██║     █████╔╝ █████╗     ██║
-    ██║   ██╔══██╗██║██║     ██╔═██╗ ██╔══╝     ██║
-    ██║   ██║  ██║██║╚██████╗██║  ██╗███████╗   ██║
-    ╚═╝   ╚═╝  ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝   ╚═╝
-""")
-    print("=" * 78)
-
-# =========================
 # MAIN MENU
 # =========================
 
-def main_menu():
+def main_menu(settings_preview="5 OVERS | NORMAL | BALANCED"):
+    idx = 0
     while True:
-        clear()
-        print(ctext("=" * 78, Fore.BLUE, Style.BRIGHT))
-        ver  = ctext("[ V 1.1.0 - CLI CRICKET SIMULATOR ]", Fore.CYAN, Style.BRIGHT)
-        user = ctext("[ USER: PLAYER_1 ]", Fore.YELLOW, Style.BRIGHT)
-        gap  = 78 - len("[ V 1.1.0 - CLI CRICKET SIMULATOR ]") - len("[ USER: PLAYER_1 ]")
-        print(ver + " " * gap + user)
-        print(ctext("=" * 78, Fore.BLUE, Style.BRIGHT))
-        print()
-        draw_box([
-            "",
-            highlight("  [1]   QUICK MATCH  (1 / 5 / 10 / 20 OVERS)"),
-            "",
-            highlight("  [2]   RECORDS  (MATCH HISTORY & PLAYER STATS)"),
-            "",
-            error_text("  [3]   QUIT GAME"),
-            "",
-        ])
-        print()
-        print(ctext("-" * 78, Fore.MAGENTA))
-        print(info_text("TIP: ") + ctext(random.choice(TIPS), Fore.WHITE, Style.BRIGHT))
-        print(ctext("-" * 78, Fore.MAGENTA))
-        print()
-        choice = safe_input(highlight(">> SELECT OPTION [1-3]: "), "3").strip()
-        if choice == "1":   return "play"
-        elif choice == "2": return "records"
-        elif choice == "3":
+        draw_main_menu_screen(idx, settings_preview=settings_preview)
+        k = get_key()
+        if k in ("UP", "W"):
+            idx = (idx - 1) % 4
+        elif k in ("DOWN", "S"):
+            idx = (idx + 1) % 4
+        elif k == "ENTER":
+            if idx == 0:
+                return "play"
+            if idx == 1:
+                return "records"
+            if idx == 2:
+                return "settings"
+            print(success_text("\nGG! Thanks for playing.\n"))
+            sys.exit(0)
+        elif k == "ESC":
             print(success_text("\nGG! Thanks for playing.\n"))
             sys.exit(0)
 
@@ -1137,77 +1322,60 @@ def main_menu():
 # =========================
 
 def show_records(history, stats):
-    clear()
-    print_header()
+    print_header("RECORDS")
+    center_line(ctext("-- CAREER LOGBOOK --", Fore.YELLOW, Style.BRIGHT))
     print()
-    if not history:
-        print(error_text("  No match records yet. Play a game first!"))
-    else:
-        print(highlight("  MATCH HISTORY"))
-        print(ctext("  " + "-" * 60, Fore.MAGENTA))
+    if history:
+        center_line(ctext("RECENT MATCHES", Fore.YELLOW, Style.BRIGHT))
         for i, rec in enumerate(history[-10:], 1):
-            print(ctext(f"  {i:>2}. {rec}", Fore.WHITE, Style.BRIGHT))
+            center_line(ctext(f"{i:>2}. {rec}", Fore.WHITE))
+    else:
+        center_line(ctext("No match records yet. Play a game first!", Fore.RED, Style.BRIGHT))
+
     print()
-    print(highlight("  CAREER SNAPSHOT"))
-    print(ctext("  " + "-" * 60, Fore.MAGENTA))
-    print(ctext(f"  Matches: {stats.get('matches', 0)}   Wins: {stats.get('user_wins', 0)}   "
-          f"Losses: {stats.get('user_losses', 0)}   Ties: {stats.get('ties', 0)}", Fore.CYAN, Style.BRIGHT))
-    print(ctext(f"  Total Runs (all innings): {stats.get('total_runs', 0)}", Fore.YELLOW, Style.BRIGHT))
-    print(ctext(f"  Total Wickets Fallen: {stats.get('total_wickets', 0)}", Fore.YELLOW, Style.BRIGHT))
-    print(ctext(f"  Highest Combined Match Total: {stats.get('highest_match_total', 0)}", Fore.GREEN, Style.BRIGHT))
+    center_line(ctext("CAREER SNAPSHOT", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext(f"Matches {stats.get('matches', 0)} | Wins {stats.get('user_wins', 0)} | Losses {stats.get('user_losses', 0)} | Ties {stats.get('ties', 0)}", Fore.WHITE))
+    center_line(ctext(f"Total Runs {stats.get('total_runs', 0)} | Total Wickets {stats.get('total_wickets', 0)} | Highest Match Total {stats.get('highest_match_total', 0)}", Fore.WHITE))
     print()
-    safe_input(highlight("  >> PRESS ENTER TO GO BACK..."), "")
+    center_line(ctext("[TRIKET // v2.6]  [ENTER] BACK", Fore.YELLOW, Style.BRIGHT))
+    safe_input("", "")
 
 
 def choose_match_settings():
-    clear()
-    print_header()
-    print("\n  MATCH SETTINGS\n")
-
     while True:
         try:
-            overs = int(safe_input("  Select overs (1 / 5 / 10 / 20): ", "5"))
-            if overs in [1, 5, 10, 20]:
+            print_header("MATCH SETTINGS")
+            center_line(ctext("Type total overs for the innings (1 to 50)", Fore.YELLOW, Style.BRIGHT))
+            center_line(ctext("Recommended: 5, 10, 20", Fore.MAGENTA))
+            print()
+            overs = int(safe_input(ctext("  >> OVERS: ", Fore.CYAN, Style.BRIGHT), "5"))
+            if 1 <= overs <= 50:
                 break
-            print("  Choose 1, 5, 10, or 20.")
+            center_line(error_text("Choose a value from 1 to 50."))
+            pause(1.0)
         except ValueError:
-            print("  Invalid input.")
+            center_line(error_text("Invalid input. Type a number."))
+            pause(1.0)
 
-    print("\n  Difficulty Levels:")
-    print("    [1] Easy   - More forgiving batting outcomes")
-    print("    [2] Normal - Balanced simulation")
-    print("    [3] Hard   - Tougher AI and tighter outcomes")
+    d_idx = arrow_menu(
+        "DIFFICULTY",
+        [
+            "Easy   - More forgiving batting outcomes",
+            "Normal - Balanced simulation",
+            "Hard   - Tougher AI and tighter outcomes",
+        ],
+    )
+    difficulty = ["Easy", "Normal", "Hard"][d_idx]
 
-    while True:
-        d = safe_input("\n  Select difficulty [1-3]: ", "2").strip()
-        if d == "1":
-            difficulty = "Easy"
-            break
-        if d == "2":
-            difficulty = "Normal"
-            break
-        if d == "3":
-            difficulty = "Hard"
-            break
-        print("  Enter 1, 2, or 3.")
-
-    print("\n  AI Personality:")
-    print("    [1] Defensive - Protects wickets, calmer chasing")
-    print("    [2] Balanced  - Mixed tactics")
-    print("    [3] Aggressive - Boundary hunting, higher risk")
-
-    while True:
-        p = safe_input("\n  Select AI personality [1-3]: ", "2").strip()
-        if p == "1":
-            personality = "Defensive"
-            break
-        if p == "2":
-            personality = "Balanced"
-            break
-        if p == "3":
-            personality = "Aggressive"
-            break
-        print("  Enter 1, 2, or 3.")
+    p_idx = arrow_menu(
+        "AI PERSONALITY",
+        [
+            "Defensive - Protects wickets, calmer chasing",
+            "Balanced  - Mixed tactics",
+            "Aggressive - Boundary hunting, higher risk",
+        ],
+    )
+    personality = ["Defensive", "Balanced", "Aggressive"][p_idx]
 
     return overs, difficulty, personality
 
@@ -1217,22 +1385,26 @@ def choose_match_settings():
 
 def choose_team():
     teams = list(TEAMS.keys())
-    clear()
-    print_header()
-    print("\n  SELECT YOUR TEAM:\n")
-    for i, t in enumerate(teams, 1):
-        print(f"    {i:>2}. {t}")
-    print()
+    idx = 0
     while True:
-        try:
-            c = int(safe_input("  Enter number: ", "1"))
-            if 1 <= c <= len(teams):
-                player = teams[c - 1]; break
-            else: print("  Choose a number from the list.")
-        except ValueError: print("  Invalid input.")
+        draw_team_select_screen(idx, teams)
+        k = get_key()
+        if k in ("UP", "W"):
+            idx = (idx - 1) % len(teams)
+        elif k in ("DOWN", "S"):
+            idx = (idx + 1) % len(teams)
+        elif k == "ENTER":
+            break
+        elif k == "ESC":
+            return None, None
+
+    player = teams[idx]
     computer = random.choice([t for t in teams if t != player])
-    print(f"\n  Your team  : {player}")
-    print(f"  Opponent   : {computer}")
+    print_header("MATCHUP")
+    draw_center_box([
+        ctext(f"  Your team  : {player}", Fore.GREEN, Style.BRIGHT),
+        ctext(f"  Opponent   : {computer}", Fore.YELLOW, Style.BRIGHT),
+    ], title="TEAMS")
     pause(1.5)
     return player, computer
 
@@ -1253,10 +1425,18 @@ def setup_conditions():
         "Humid": "Some extra movement expected.",
         "Windy": "Gusty conditions at the ground.",
     }
-    clear(); print_header()
-    print("\n  === MATCH CONDITIONS ===\n")
-    animate(f"  Pitch   : {pitch}  —  {desc.get(pitch,'')}")
-    animate(f"  Weather : {weather}  —  {desc.get(weather,'')}")
+    print_header("MATCH CONDITIONS")
+    spin_tag = int(round(PITCH_TYPES.get(pitch, {}).get("spin_mod", 0) * 20))
+    swing_tag = int(round(WEATHER_CONDITIONS.get(weather, {}).get("swing_mod", 0) * 10))
+    center_line(ctext("-- PRE-MATCH REPORT --", Fore.YELLOW, Style.BRIGHT))
+    print()
+    center_line(ctext(f"PITCH   : {pitch.upper()} (SPIN {spin_tag:+d})", Fore.WHITE, Style.BRIGHT))
+    center_line(ctext(desc.get(pitch, ''), Fore.WHITE, Style.DIM))
+    print()
+    center_line(ctext(f"WEATHER : {weather.upper()} (SWING {swing_tag:+d})", Fore.WHITE, Style.BRIGHT))
+    center_line(ctext(desc.get(weather, ''), Fore.WHITE, Style.DIM))
+    print()
+    center_line(ctext("[TRIKET // v2.6]", Fore.YELLOW, Style.BRIGHT))
     pause(1.5)
     return pitch, weather
 
@@ -1265,32 +1445,29 @@ def setup_conditions():
 # =========================
 
 def toss(player, computer):
-    clear(); print_header()
-    print("\n  === TOSS ===\n")
-    while True:
-        call = safe_input("  Call Heads or Tails (H/T): ", "h").strip().lower()
-        if call in ["h","heads"]:   user_call="heads"; break
-        elif call in ["t","tails"]: user_call="tails"; break
-        else: print("  Type H or T.")
+    print_header("TOSS")
+    call_idx = arrow_menu("CALL THE TOSS", ["Heads", "Tails"], hint="UP/DOWN and ENTER")
+    user_call = "heads" if call_idx == 0 else "tails"
     result = random.choice(["heads","tails"])
-    animate("  Coin flips...")
-    animate(f"  Result: {result.upper()}!")
+    print_header("TOSS")
+    center_line(ctext("COIN FLIPS...", Fore.WHITE, Style.BRIGHT))
+    center_line(ctext(f"RESULT: {result.upper()}!", Fore.YELLOW, Style.BRIGHT))
+    pause(0.8)
     if user_call == result:
-        print(f"\n  You won the toss!\n")
-        while True:
-            c = safe_input("  Bat or Bowl? (bat/bowl): ", "bat").strip().lower()
-            if c in ["bat","b"]:
-                animate(f"  {player} will BAT first.")
-                safe_input("\n>> PRESS [ENTER] TO CONTINUE...", "")
-                return True
-            elif c in ["bowl","bo"]:
-                animate(f"  {player} will BOWL first.")
-                safe_input("\n>> PRESS [ENTER] TO CONTINUE...", "")
-                return False
-            else: print("  Invalid.")
+        pick = arrow_menu("YOU WON THE TOSS", ["Bat First", "Bowl First"], hint="Choose innings plan")
+        if pick == 0:
+            print_header("TOSS RESULT")
+            center_line(ctext(f"{player.upper()} WILL BAT FIRST", Fore.YELLOW, Style.BRIGHT))
+            safe_input("\n>> PRESS [ENTER] TO CONTINUE...", "")
+            return True
+        print_header("TOSS RESULT")
+        center_line(ctext(f"{player.upper()} WILL BOWL FIRST", Fore.YELLOW, Style.BRIGHT))
+        safe_input("\n>> PRESS [ENTER] TO CONTINUE...", "")
+        return False
     else:
         comp = random.choice(["bat","bowl"])
-        animate(f"\n  {computer} won the toss and chose to {comp}.")
+        print_header("TOSS RESULT")
+        center_line(ctext(f"{computer.upper()} WON THE TOSS AND CHOSE TO {comp.upper()}", Fore.YELLOW, Style.BRIGHT))
         safe_input("\n>> PRESS [ENTER] TO CONTINUE...", "")
         return comp != "bat"
 
@@ -1342,38 +1519,38 @@ def user_pick_bowler(bowling_team, bowler_overs, bowler_stats, max_quota,
     if not candidates:
         candidates = lineup[:]
 
-    type_icon = {"pace": "⚡ PACE", "spin": "🌀 SPIN",
-                 "medium": "〰 MED", "bat": "🏏 BAT"}
-
-    clear()
-    print_header()
-    print(f"\n  === OVER {over_num} — CHOOSE YOUR BOWLER ===\n")
-    print(f"  {'#':<4} {'BOWLER':<22} {'TYPE':<10} {'OV DONE':<10} {'REMAINING':<12} {'SPELL'}")
-    print("  " + "─" * 68)
-
-    for i, p in enumerate(candidates, 1):
-        btype    = get_stat(p, "bowl_type", "bat")
-        ov_done  = bowler_overs.get(p, 0)
-        remaining = max_quota - ov_done
-        bst       = bowler_stats.get(p, {"balls": 0, "runs": 0, "wickets": 0})
-        ov_str    = f"{bst['balls']//6}.{bst['balls']%6}"
-        spell     = f"{bst['runs']}-{bst['wickets']} ({ov_str})"
-        tlabel    = type_icon.get(btype, btype.upper())
-        print(f"  [{i}]  {short(p):<22} {tlabel:<10} {ov_done:<10} {remaining} left         {spell}")
-
-    print()
+    type_icon = {"pace": "PACE", "spin": "SPIN", "medium": "MED", "bat": "BAT"}
+    idx = 0
     while True:
-        try:
-            c = int(safe_input(f"  >> SELECT BOWLER [1-{len(candidates)}]: ", "1"))
-            if 1 <= c <= len(candidates):
-                chosen = candidates[c - 1]
-                animate(f"\n  {short(chosen)} will bowl over {over_num}.")
-                pause(0.5)
-                return chosen
-            else:
-                print(f"  Enter a number between 1 and {len(candidates)}.")
-        except ValueError:
-            print("  Invalid input.")
+        print_header(f"OVER {over_num} - CHOOSE BOWLER")
+        rows = []
+        for i, p in enumerate(candidates):
+            btype = get_stat(p, "bowl_type", "bat")
+            ov_done = bowler_overs.get(p, 0)
+            remaining = max_quota - ov_done
+            bst = bowler_stats.get(p, {"balls": 0, "runs": 0, "wickets": 0})
+            ov_str = f"{bst['balls']//6}.{bst['balls']%6}"
+            spell = f"{bst['runs']}-{bst['wickets']} ({ov_str})"
+            marker = "▶" if i == idx else " "
+            color = Fore.GREEN if i == idx else Fore.WHITE
+            rows.append(ctext(
+                f" {marker} {short(p):<20} {type_icon.get(btype, btype.upper()):<5}  {ov_done}/{max_quota}  left:{remaining:<2}  {spell}",
+                color,
+                Style.BRIGHT if i == idx else Style.NORMAL,
+            ))
+        rows.append("")
+        rows.append(ctext("Use UP/DOWN and ENTER", Fore.MAGENTA, Style.BRIGHT))
+        draw_center_box(rows, title="BOWLING ROTATION")
+        k = get_key()
+        if k in ("UP", "W"):
+            idx = (idx - 1) % len(candidates)
+        elif k in ("DOWN", "S"):
+            idx = (idx + 1) % len(candidates)
+        elif k == "ENTER":
+            chosen = candidates[idx]
+            animate(f"\n  {short(chosen)} will bowl over {over_num}.")
+            pause(0.5)
+            return chosen
 
 
 # =========================
@@ -1483,99 +1660,144 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
     crr    = round((score / balls) * 6, 2) if balls > 0 else 0.00
     total  = overs * 6
 
-    clear()
-    print(ctext("=" * 78, Fore.BLUE, Style.BRIGHT))
-    print(ctext(f" INNINGS {innings_num} - {batting_team} vs {bowling_team} ", Fore.CYAN, Style.BRIGHT).center(78))
-    print(ctext("=" * 78, Fore.BLUE, Style.BRIGHT))
+    def win_estimate():
+        if target is None:
+            prog = balls / total if total else 0
+            base = 45 + (crr - 7.0) * 7 - wickets * 2.4 + prog * 12
+            return max(5, min(95, int(round(base))))
+        balls_left = max(0, total - balls)
+        runs_left = max(0, target - score)
+        if balls_left <= 0:
+            return 100 if runs_left <= 0 else 0
+        req_rr = (runs_left * 6 / balls_left)
+        resource = (10 - wickets) * 4 + (balls_left / 6) * 2
+        base = 58 - (req_rr - crr) * 9 + resource * 0.9
+        return max(1, min(99, int(round(base))))
 
-    left = ctext(f"  {batting_team}: {score}/{wickets} ({cur_ov}.{cur_bl})", Fore.GREEN, Style.BRIGHT)
-    if target is not None:
-        balls_left = total - balls
-        runs_left  = target - score
-        rrr = round((runs_left / balls_left) * 6, 2) if balls_left > 0 else 0.00
-        right = ctext(f"TARGET: {target}  (RR: {crr:.2f}, RRR: {rrr:.2f})  ", Fore.YELLOW, Style.BRIGHT)
+    def timing_scale(label):
+        marks = {"PERFECT": "P", "GOOD": "G", "AVERAGE": "A", "BAD": "B", "MISS": "M"}
+        active = marks.get(label, "")
+        letters = []
+        for ch in ["P", "G", "A", "B", "M"]:
+            token = f"[{ch}]" if ch == active else ch
+            if ch == "P" and ch == active:
+                token = ctext("\033[5m[P]\033[0m", Fore.GREEN, Style.BRIGHT)
+            elif ch == "M" and ch == active:
+                token = ctext("[M]", Fore.RED, Style.BRIGHT)
+            letters.append(token)
+        return " > ".join(letters)
+
+    def radar_line(zid, label, focus):
+        if zid == focus:
+            return ctext(f"({zid}) > {label} <", Fore.YELLOW, Style.BRIGHT)
+        return ctext(f"({zid}) {label}", Fore.WHITE)
+
+    clear()
+    status_width = min(term_width() - 2, 112)
+    heavy = ctext("═" * status_width, Fore.CYAN, Style.BRIGHT)
+    center_line(heavy)
+
+    if target is None:
+        proj_total = int(round(crr * overs)) if balls > 0 else overs * 8
     else:
-        right = ctext(f"RR: {crr:.2f}  ", Fore.YELLOW, Style.BRIGHT)
-    draw_box([left.ljust(40) + right.rjust(34)])
-    print()
+        balls_left = max(0, total - balls)
+        runs_left = max(0, target - score)
+        req_rr = round((runs_left * 6 / balls_left), 2) if balls_left > 0 else 0.00
+        proj_total = f"CHASE {runs_left} OFF {balls_left}"
+
+    win_pct = win_estimate()
+    left = ctext(f"{batting_team.upper():<14} {score}/{wickets} ({cur_ov}.{cur_bl} ov)", Fore.WHITE, Style.BRIGHT)
+    mid = ctext(f"[ INNINGS {innings_num} ]", Fore.CYAN, Style.BRIGHT)
+    if target is None:
+        right = ctext(f"PROJ.TOTAL: {proj_total:<4} | WIN%: {win_pct:>2}%", Fore.YELLOW, Style.BRIGHT)
+    else:
+        right = ctext(f"REQ.RR: {req_rr:>4.2f} | WIN%: {win_pct:>2}%", Fore.YELLOW, Style.BRIGHT)
+    center_line(pad_visible(left, 34) + pad_visible(mid, 22) + pad_visible(right, 46))
+    center_line(heavy)
 
     s_r  = batter_runs.get(striker, 0)
     s_b  = batter_balls.get(striker, 0)
     ns_r = batter_runs.get(non_striker, 0)
     ns_b = batter_balls.get(non_striker, 0)
-    bst  = bowler_stats.get(current_bowler,
-                             {"balls": 0, "runs": 0, "wickets": 0})
+    bst  = bowler_stats.get(current_bowler, {"balls": 0, "runs": 0, "wickets": 0})
 
     bow_balls = bst.get("balls",   0)
     bow_runs  = bst.get("runs",    0)
     bow_wkts  = bst.get("wickets", 0)
     bow_ov    = f"{bow_balls // 6}.{bow_balls % 6}"
-    bow_spell = f"{bow_runs}-{bow_wkts} ({bow_ov})"
 
-    over_sym = "  ".join(over_log) if over_log else "-"
+    over_runs = 0
+    for sym in over_log:
+        if sym.isdigit():
+            over_runs += int(sym)
+        elif sym in ("wd", "nb"):
+            over_runs += 1
+    momentum_val = max(0, min(100, int(partnership_runs * 2 + over_runs * 8 + (10 - wickets) * 3)))
+    momentum_txt = "STEADY"
+    if momentum_val >= 70:
+        momentum_txt = "SURGE"
+    elif momentum_val <= 30:
+        momentum_txt = "PRESSURE"
 
     timing_label, timing_note = timing_feedback(timing_grade, timing_quality)
-    role = "BATTING" if user_is_batting else "BOWLING"
-    role_line = ctext(f"  YOU ARE {role} | Innings {innings_num}", Fore.MAGENTA, Style.BRIGHT)
-    if user_is_batting:
-        zone_line = (ctext(f"  TARGET ZONE: {selected_zone} - {FIELD_ZONES.get(selected_zone, 'Straight')}", Fore.CYAN, Style.BRIGHT)
-                     if selected_zone else ctext("  TARGET ZONE: 5 - Straight", Fore.CYAN, Style.BRIGHT))
-    else:
-        zone_line = ctext(f"  BOWLING ZONE: {bowling_zone} - {FIELD_ZONES.get(bowling_zone, 'Straight')}", Fore.CYAN, Style.BRIGHT)
+    timing_color = Fore.RED if timing_label in ("MISS", "BAD") else (Fore.GREEN if timing_label == "PERFECT" else Fore.CYAN)
 
-    timing_color = {
-        "PERFECT": Fore.GREEN,
-        "GOOD": Fore.CYAN,
-        "AVERAGE": Fore.YELLOW,
-        "BAD": Fore.MAGENTA,
-        "MISS": Fore.RED,
-        "-": Fore.WHITE
-    }.get(timing_label, Fore.WHITE)
+    focus_zone = selected_zone if user_is_batting else bowling_zone
+    if focus_zone not in FIELD_ZONES:
+        focus_zone = "5"
 
-    draw_box([
-        role_line,
-        zone_line,
-        ctext(f"  TIMING RESULT: {timing_label:<8} ({timing_note})", timing_color, Style.BRIGHT),
-        ctext("  TIMING SCALE: PERFECT > GOOD > AVERAGE > BAD > MISS", Fore.WHITE, Style.DIM),
-    ])
+    left_panel = [
+        "",
+        "            " + radar_line("3", "Mid-Off", focus_zone) + "     " + radar_line("2", "Cover", focus_zone),
+        "  " + radar_line("9", "Lng-Off", focus_zone) + "        \\        /   " + radar_line("1", "3rd", focus_zone),
+        "  " + radar_line("8", "Lng-On", focus_zone) + "  --- [ P I T C H ] ---  " + radar_line("6", "Fine", focus_zone),
+        "  " + radar_line("7", "Mid-On", focus_zone) + "         /      \\   " + radar_line("4", "Mid-Wkt", focus_zone),
+        "                     " + radar_line("5", "STRAIGHT", focus_zone),
+        "",
+    ]
 
-    tactical_lines = tactical_insight(score, wickets, balls, total, target, partnership_runs, over_log)
-    draw_box([ctext(line, Fore.YELLOW, Style.BRIGHT) for line in tactical_lines])
+    right_panel = [
+        "",
+        ctext(f"STRIKER:   {short(lineup[striker]):<16} {s_r} ({s_b})", Fore.YELLOW, Style.BRIGHT),
+        ctext(f"NON-STR:   {short(lineup[non_striker]):<16} {ns_r} ({ns_b})", Fore.WHITE),
+        ctext("----------------------------------------------", Fore.CYAN),
+        ctext(f"TIMING: [ {timing_label} ]", timing_color, Style.BRIGHT),
+        ctext(f"SCALE: {timing_scale(timing_label)}", Fore.WHITE),
+        ctext(f"MOMENTUM: {progress_bar(momentum_val, 100, 12)} {momentum_txt}", Fore.CYAN, Style.BRIGHT),
+        ctext(f"NOTE: {timing_note}", Fore.WHITE),
+    ]
 
-    print()
-    # Removed 'CENTER PLAY ZONE' and separator for modern field view
-    if user_is_batting and field_setup:
-        draw_modern_field(selected_zone)
-    elif not user_is_batting:
-        guide = [
-            ctext("  BOWLING EFFECT GUIDE", Fore.CYAN, Style.BRIGHT),
-            ctext("  Off zones (1/2/3): tighter lines, dots/wickets", Fore.WHITE),
-            ctext("  Leg zones (4/6/7): boundary risk if missed", Fore.WHITE),
-            ctext("  Straight (5/8/9): yorker channel in death overs", Fore.WHITE),
-        ]
-        for ln in guide:
-            print(ln)
+    draw_dual_panels("TACTICAL RADAR", left_panel, "BATTING HUD", right_panel)
 
-    print()
-    print(ctext("  BOTTOM SCOREBOARD", Fore.BLUE, Style.BRIGHT))
-    print(ctext("  " + "-" * 60, Fore.BLUE))
-    print(ctext(f"  STRIKER   : {short(lineup[striker]):<18} {s_r:>3} ({s_b})", Fore.GREEN, Style.BRIGHT))
-    print(ctext(f"  NON-STR   : {short(lineup[non_striker]):<18} {ns_r:>3} ({ns_b})", Fore.GREEN))
-    print(ctext(f"  BOWLER    : {short(current_bowler):<18} {bow_spell}", Fore.MAGENTA, Style.BRIGHT))
-    print(ctext(f"  LAST OVER : {over_sym}", Fore.YELLOW))
+    phase = "POWERPLAY"
+    pno = balls // 6 + 1
+    if total and (balls / total) > 0.33:
+        phase = "MIDDLE"
+    if total and (balls / total) > 0.80:
+        phase = "DEATH"
 
-    if target is not None:
-        runs_left = target - score
-        balls_left = total - balls
-        print(ctext(f"  CHASE     : Need {runs_left} off {balls_left}", Fore.CYAN, Style.BRIGHT))
-    print(ctext(f"  PARTNER   : {partnership_runs} runs", Fore.WHITE, Style.BRIGHT))
+    over_sym = " ".join(over_log) if over_log else "-"
+    spin_tag = int(round(PITCH_TYPES.get(pitch, {}).get("spin_mod", 0) * 20))
+    swing_tag = int(round(WEATHER_CONDITIONS.get(weather, {}).get("swing_mod", 0) * 10))
+
+    bottom_left = [
+        "",
+        ctext(f"PARTNERSHIP: {partnership_runs} ({partnership_runs})", Fore.WHITE),
+        ctext(f"LAST OVER : {over_sym}", Fore.WHITE),
+        ctext(f"CURRENT PH : {phase} [{pno}/{overs}]", Fore.WHITE),
+    ]
+
+    bottom_right = [
+        "",
+        ctext(f"PITCH:   {pitch} (Spin {spin_tag:+d})", Fore.WHITE),
+        ctext(f"WEATHER: {weather} (Swing {swing_tag:+d})", Fore.WHITE),
+        ctext(f"BOWLER:  {short(current_bowler)} ({bow_ov}, {bow_runs}-{bow_wkts})", Fore.WHITE),
+    ]
+
+    draw_dual_panels("MATCH TACTICS", bottom_left, "CONDITIONS", bottom_right)
+
     if free_hit:
-        print(ctext("  ALERT     : FREE HIT", Fore.RED, Style.BRIGHT))
-
-    print()
-    print(ctext(f"  Pitch: {pitch}   Weather: {weather}   Difficulty: {difficulty}   AI: {personality}", Fore.WHITE, Style.DIM))
-    print()
-    print(ctext("-" * 78, Fore.BLUE))
+        center_line(ctext("ALERT: FREE HIT", Fore.RED, Style.BRIGHT))
 
 # =========================
 # INNINGS SUMMARY
@@ -1588,8 +1810,7 @@ def show_innings_summary(batting_team, score, wickets, balls,
                          overs, extras_detail, batter_runs, batter_balls,
                          batter_fours, batter_sixes, batter_dismissal,
                          bowler_stats, lineup, is_first_innings, first_innings_score=0):
-    clear()
-    print_header()
+    print_header("INNINGS SUMMARY")
 
     crr     = round((score / balls) * 6, 2) if balls > 0 else 0.00
     ov_str  = f"{balls // 6}.{balls % 6}"
@@ -1598,17 +1819,12 @@ def show_innings_summary(batting_team, score, wickets, balls,
     nb_cnt  = extras_detail.get("nb", 0)
     total_x = w_cnt + lb_cnt + nb_cnt
 
-    draw_box([
-        f"  INNINGS COMPLETE: {batting_team}".ljust(38)
-            + f"TOTAL: {score}/{wickets} ({ov_str} Overs)".rjust(36),
-        f"  RUN RATE: {crr:.2f}".ljust(38)
-            + f"EXTRAS: {total_x} (w{w_cnt}, lb{lb_cnt}, nb{nb_cnt})".rjust(36),
-    ])
+    center_line(ctext(f"INNINGS COMPLETE: {batting_team.upper()}", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext(f"TOTAL: {score}/{wickets} ({ov_str} overs) | RUN RATE: {crr:.2f}", Fore.WHITE, Style.BRIGHT))
+    center_line(ctext(f"EXTRAS: {total_x} (w{w_cnt}, lb{lb_cnt}, nb{nb_cnt})", Fore.WHITE))
     print()
 
-    # Batting summary
-    print("  BATTING SUMMARY" + " " * 35 + "S/R")
-    print("  " + "-" * 74)
+    bat_rows = []
     shown = 0
     for i, name in enumerate(lineup):
         r = batter_runs.get(i, 0)
@@ -1620,25 +1836,29 @@ def show_innings_summary(batting_team, score, wickets, balls,
         f4   = batter_fours.get(i, 0)
         s6   = batter_sixes.get(i, 0)
         bdry = f"[4x{f4}, 6x{s6}]"
-        print(f"  {short(name):<16}  {dis:<24}  {r} ({b:02d})  {bdry:<12}  {sr:.1f}")
+        bat_rows.append(f"{short(name):<16} {dis:<20} {r:>3} ({b:02d}) {bdry:<10} SR {sr:>5.1f}")
         shown += 1
     if shown == 0:
-        print("  (no batters recorded)")
-    print()
+        bat_rows.append("(no batters recorded)")
 
-    # Bowling summary
-    print("  BOWLING SUMMARY"
-          + "O".rjust(13) + "M".rjust(5) + "R".rjust(5)
-          + "W".rjust(5) + "  ECON")
-    print("  " + "-" * 62)
+    bowl_rows = []
     for bname, bst in bowler_stats.items():
         if bst["balls"] == 0:
             continue
         ov  = f"{bst['balls'] // 6}.{bst['balls'] % 6}"
         eco = round((bst["runs"] / bst["balls"]) * 6, 2) \
               if bst["balls"] > 0 else 0.00
-        print(f"  {short(bname):<20}  {ov:>5}  {bst['maidens']:>3}  "
-              f"{bst['runs']:>4}  {bst['wickets']:>4}  {eco:>7.2f}")
+        bowl_rows.append(f"{short(bname):<18} O:{ov:>4} M:{bst['maidens']:>2} R:{bst['runs']:>3} W:{bst['wickets']:>2} ECO:{eco:>4.2f}")
+    if not bowl_rows:
+        bowl_rows.append("(no bowling figures)")
+
+    center_line(ctext("BATTING SUMMARY", Fore.YELLOW, Style.BRIGHT))
+    for row in bat_rows[:12]:
+        center_line(ctext(row, Fore.WHITE))
+    print()
+    center_line(ctext("BOWLING SUMMARY", Fore.YELLOW, Style.BRIGHT))
+    for row in bowl_rows[:12]:
+        center_line(ctext(row, Fore.WHITE))
     print()
 
     if is_first_innings:
@@ -1678,7 +1898,7 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
     bowler_stats   = {}
     bowler_overs   = {}
     last_bowler    = None
-    max_quota      = max(1, overs // 5)
+    max_quota      = max(1, math.ceil(overs / 5))
     if not user_is_batting:
         current_bowler = user_pick_bowler(bowling_team, bowler_overs, {},
                                           max_quota, None, 1)
@@ -1723,16 +1943,18 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
 
         # Show correct commands based on current bowler type
         b_type = get_stat(current_bowler, "bowl_type", "medium")
+        center_line(ctext("━" * min(term_width() - 2, 112), Fore.CYAN, Style.BRIGHT))
         if user_is_batting:
-            print("  COMMANDS: [A/←] Defend  |  [D/→] Swing  |  [W/↑] Loft  |  [S/↓] Leave")
-            print("  SKILL:    Choose target zone [1-9], then press [SPACE] for timing")
+            center_line(ctext("COMMANDS: [A/←] DEFEND | [D/→] SWING | [W/↑] LOFT | [S/↓] LEAVE", Fore.WHITE, Style.BRIGHT))
+            center_line(ctext("ACTION  : Select Zone [1-9] -> Press [SPACE] to time your shot.", Fore.WHITE))
         else:
             if b_type == "spin":
-                print("  COMMANDS: [A/←] Off-spin  |  [D/→] Leg-spin  |  [W/↑] Flipper  |  [S/↓] Googly")
+                center_line(ctext("COMMANDS: [A/←] OFF-SPIN | [D/→] LEG-SPIN | [W/↑] FLIPPER | [S/↓] GOOGLY", Fore.WHITE, Style.BRIGHT))
             else:
-                print("  COMMANDS: [A/←] In-swing  |  [D/→] Out-swing  |  [W/↑] Yorker  |  [S/↓] Bouncer")
-        print("  SYSTEM:   [ESC] Pause / Resume")
-        print("-" * 78)
+                center_line(ctext("COMMANDS: [A/←] IN-SWING | [D/→] OUT-SWING | [W/↑] YORKER | [S/↓] BOUNCER", Fore.WHITE, Style.BRIGHT))
+            center_line(ctext("ACTION  : Pick bowling zone and execute delivery.", Fore.WHITE))
+        center_line(ctext("SYSTEM: [ESC] Pause / Resume", Fore.WHITE))
+        center_line(ctext("═" * min(term_width() - 2, 112), Fore.CYAN, Style.BRIGHT))
 
         # Input
         shot = delivery = None
@@ -2000,8 +2222,7 @@ def pick_potm(t1, t2, br1, bb1, bs1, br2, bb2, bs2):
 def show_final_result(player_team, t1, s1, w1, b1,
                       t2, s2, w2, b2, overs,
                       bs1, br1, bb1, bs2, br2, bb2, history):
-    clear()
-    print_header()
+    print_header("MATCH RESULT")
 
     target = s1 + 1
 
@@ -2009,30 +2230,28 @@ def show_final_result(player_team, t1, s1, w1, b1,
         wkts_left = 10 - w2
         balls_rem  = overs * 6 - b2
         ovs_rem    = f"{balls_rem // 6}.{balls_rem % 6}"
-        msg    = (f"  \U0001f389  {t2} WIN BY {wkts_left} WICKET(S)"
-                  f"  ({ovs_rem} OVERS REMAINING)  \U0001f389")
+        msg    = f"{t2} WIN BY {wkts_left} WICKET(S) ({ovs_rem} OVERS REMAINING)"
         winner = t2
     elif s2 == s1:
-        msg    = "  \U0001f3c6  IT'S A TIE! WHAT A MATCH!  \U0001f3c6"
+        msg    = "IT IS A TIE! WHAT A MATCH!"
         winner = "Tie"
     else:
         margin = s1 - s2
-        msg    = f"  \U0001f389  {t1} WIN BY {margin} RUN(S)  \U0001f389"
+        msg    = f"{t1} WIN BY {margin} RUN(S)"
         winner = t1
 
-    draw_box(["", msg, ""])
-    print()
+    center_line(ctext("-- FINAL VERDICT --", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext(msg, Fore.YELLOW, Style.BRIGHT))
 
     rr1 = round((s1 / (b1 if b1 else 1)) * 6, 2)
     rr2 = round((s2 / (b2 if b2 else 1)) * 6, 2)
     ov1 = f"{b1 // 6}.{b1 % 6}"
     ov2 = f"{b2 // 6}.{b2 % 6}"
 
-    print("  FINAL RECAP")
-    print("  " + "-" * 70)
-    print(f"  \U0001f3cf 1ST INNINGS ({t1}):   {s1}/{w1} ({ov1})   |  RR: {rr1}")
-    print(f"  \U0001f3cf 2ND INNINGS ({t2}):   {s2}/{w2} ({ov2})   |  RR: {rr2}")
-    print()
+    recap_l = [
+        f"1ST INNINGS ({t1}): {s1}/{w1} ({ov1}) | RR: {rr1}",
+        f"2ND INNINGS ({t2}): {s2}/{w2} ({ov2}) | RR: {rr2}",
+    ]
 
     potm_sc, potm_name, potm_team, potm_bst_dict = pick_potm(
         t1, t2, br1, bb1, bs1, br2, bb2, bs2)
@@ -2043,18 +2262,13 @@ def show_final_result(player_team, t1, s1, w1, b1,
     potm_bals  = (bb1 if potm_team == t1 else bb2).get(potm_idx, 0)
     potm_wkts  = potm_bst.get("wickets", 0)
 
-    print("  \U0001f947 PLAYER OF THE MATCH")
-    print("  " + "-" * 70)
-    print(f"  >> {short(potm_name)} ({potm_team})")
+    potm_lines = [f"{short(potm_name)} ({potm_team})"]
     if potm_bst.get("balls", 0) > 0:
         ov_s = f"{potm_bst['balls'] // 6}.{potm_bst['balls'] % 6}"
-        print(f"  >> PERFORMANCE: {ov_s} - {potm_bst.get('maidens',0)} - "
-              f"{potm_bst.get('runs',0)} - {potm_wkts}")
+        potm_lines.append(f"Performance: {ov_s} - {potm_bst.get('maidens',0)} - {potm_bst.get('runs',0)} - {potm_wkts}")
     else:
-        print(f"  >> PERFORMANCE: {potm_runs} runs ({potm_bals} balls)")
-    print()
+        potm_lines.append(f"Performance: {potm_runs} runs ({potm_bals} balls)")
 
-    print("  " + "-" * 70)
     all_bat = []
     for i, name in enumerate(TEAMS[t1]):
         all_bat.append((br1.get(i, 0), bb1.get(i, 0), name))
@@ -2068,24 +2282,31 @@ def show_final_result(player_team, t1, s1, w1, b1,
             all_bowl.append((bst["wickets"], bst["runs"], bst["balls"], name))
     all_bowl.sort(key=lambda x: (-x[0], x[1]))
 
-    left_rows  = ["[ BATTING LEADERS ]", "─" * 28]
-    right_rows = ["[ BOWLING LEADERS ]", "─" * 28]
+    left_rows  = []
+    right_rows = []
     for r, b, name in all_bat[:3]:
         left_rows.append(f"  {short(name):<18}  {r} ({b})")
     for wk, rns, bls, name in all_bowl[:3]:
         right_rows.append(f"  {short(name):<18}  {wk}/{rns}")
 
-    mx = max(len(left_rows), len(right_rows))
-    left_rows  += [""] * (mx - len(left_rows))
-    right_rows += [""] * (mx - len(right_rows))
-    for ll, rl in zip(left_rows, right_rows):
-        print(f"  {ll:<35}  {rl}")
     print()
-
-    print("-" * 78)
-    print("  OPTIONS: [R]eplay  |  [Q]uit to Menu")
-    print("-" * 78)
+    center_line(ctext("FINAL RECAP", Fore.YELLOW, Style.BRIGHT))
+    for ln in recap_l:
+        center_line(ctext(ln, Fore.WHITE))
     print()
+    center_line(ctext("PLAYER OF THE MATCH", Fore.YELLOW, Style.BRIGHT))
+    for ln in potm_lines:
+        center_line(ctext(ln, Fore.WHITE))
+    print()
+    center_line(ctext("BATTING LEADERS", Fore.YELLOW, Style.BRIGHT))
+    for ln in left_rows[:3]:
+        center_line(ctext(ln.strip(), Fore.WHITE))
+    print()
+    center_line(ctext("BOWLING LEADERS", Fore.YELLOW, Style.BRIGHT))
+    for ln in right_rows[:3]:
+        center_line(ctext(ln.strip(), Fore.WHITE))
+    print()
+    center_line(ctext("[R] REPLAY  |  [Q] MENU", Fore.YELLOW, Style.BRIGHT))
 
     history_result = "Match tied" if winner == "Tie" else f"{winner} won"
     history.append(
@@ -2105,19 +2326,30 @@ def show_final_result(player_team, t1, s1, w1, b1,
 # =========================
 
 def main():
+    normalize_terminal_viewport()
     game_data = load_game_data()
     history = game_data["history"]
     stats = game_data["stats"]
+    menu_overs = 5
+    menu_difficulty = "Normal"
+    menu_personality = "Balanced"
     while True:
-        action = main_menu()
+        preview = f"{menu_overs} OVERS | {menu_difficulty.upper()} | {menu_personality.upper()}"
+        action = main_menu(settings_preview=preview)
 
         if action == "records":
             show_records(history, stats)
             continue
 
-        overs, difficulty, personality = choose_match_settings()
+        if action == "settings":
+            menu_overs, menu_difficulty, menu_personality = choose_match_settings()
+            continue
+
+        overs, difficulty, personality = menu_overs, menu_difficulty, menu_personality
 
         player, computer = choose_team()
+        if not player:
+            continue
         pitch, weather   = setup_conditions()
         user_bats_first  = toss(player, computer)
 
@@ -2125,8 +2357,11 @@ def main():
         t2 = computer if user_bats_first else player
 
         # Innings 1 — summary shown inside play_innings, user presses Enter
-        clear(); print_header()
-        animate(f"\n  {t1} will BAT FIRST  |  Difficulty: {difficulty}  |  AI: {personality}\n")
+        print_header("MATCH START")
+        draw_center_box([
+            ctext(f"{t1} will BAT FIRST", Fore.YELLOW, Style.BRIGHT),
+            ctext(f"Difficulty: {difficulty} | AI: {personality}", Fore.WHITE),
+        ], title="OPENING")
         safe_input(">> PRESS [ENTER] TO START THE INNINGS...", "")
         s1, w1, b1, bs1, br1, bb1 = play_innings(
             overs, t1, t2, t1 == player, pitch, weather, 1, difficulty, personality)
