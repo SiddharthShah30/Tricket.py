@@ -587,6 +587,62 @@ SHOT_ZONE_COMPAT = {
     "LEAVE":  {"off": 1.0, "straight": 1.0, "leg": 1.0},
 }
 
+RADAR_LINKS = {
+    "1": ("3", "2"),
+    "2": ("3", "1"),
+    "3": ("2", "1"),
+    "4": ("7", "5"),
+    "5": ("7", "4"),
+    "6": ("8", "1"),
+    "7": ("8", "4"),
+    "8": ("7", "6"),
+    "9": ("3", "4"),
+}
+
+def draw_divider(char="─"):
+    center_line(ctext(char * min(term_width() - 2, 112), THEME_TEXT, Style.DIM))
+
+def aim_from_input(first_key, second_key=None):
+    if first_key == "UP":
+        return "5"
+    if first_key == "LEFT":
+        return "4"
+    if first_key == "RIGHT":
+        return "2"
+    if first_key == "DOWN":
+        return "9"
+
+    fk = (first_key or "").upper()
+    sk = (second_key or "").upper()
+
+    if fk == "W" and sk == "D":
+        return "3"
+    if fk == "W" and sk == "A":
+        return "7"
+    if fk == "S" and sk == "D":
+        return "1"
+    if fk == "S" and sk == "A":
+        return "6"
+
+    if fk == "W":
+        return "5"
+    if fk == "A":
+        return "4"
+    if fk == "D":
+        return "2"
+    if fk == "S":
+        return "9"
+
+    if fk in FIELD_ZONES:
+        return fk
+    return None
+
+def zone_gap_state(field_setup, zone):
+    if not field_setup:
+        return True
+    f = field_setup.get(zone, "ring")
+    return f == "deep"
+
 # =========================
 # COMMENTARY
 # =========================
@@ -807,7 +863,7 @@ def grade_timing(delta):
     return "MISS"
 
 
-def run_timing_challenge(delivery, batter_skill, difficulty):
+def run_timing_challenge(delivery, batter_skill, difficulty, bowler_pace_skill=75):
     # Faster balls tighten timing windows; better batters get slight assistance.
     speed_factor = {
         "YORKER": 1.20,
@@ -830,7 +886,8 @@ def run_timing_challenge(delivery, batter_skill, difficulty):
     good_th = 0.10 / strictness
     late_th = 0.20 / strictness
 
-    travel_time = max(0.85, 1.25 / speed_factor)
+    pace_factor = 1.0 + max(-0.15, min(0.20, (bowler_pace_skill - 75) * 0.004))
+    travel_time = max(0.75, (1.25 / speed_factor) / pace_factor)
     ideal_t = travel_time * random.uniform(0.62, 0.75)
     assist = max(-0.02, min(0.02, (batter_skill - 75) * 0.0005))
 
@@ -1704,8 +1761,8 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
                        pitch, weather, difficulty, personality,
                        field_setup=None, selected_zone=None,
                        timing_grade="-", timing_quality=1.0,
-                       bowling_zone="5", target=None, free_hit=False,
-                       user_is_batting=True):
+                       bowling_zone="1", target=None, free_hit=False,
+                       user_is_batting=True, aggression_level=3, loft_mode=False):
     cur_ov = balls // 6
     cur_bl = balls % 6
     crr    = round((score / balls) * 6, 2) if balls > 0 else 0.00
@@ -1732,16 +1789,14 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
         for ch in ["P", "G", "A", "B", "M"]:
             token = f"[{ch}]" if ch == active else ch
             if ch == "P" and ch == active:
-                token = ctext("\033[5m[P]\033[0m", Fore.GREEN, Style.BRIGHT)
+                token = ctext("[P]", Fore.GREEN, Style.BRIGHT)
             elif ch == "M" and ch == active:
                 token = ctext("[M]", Fore.RED, Style.BRIGHT)
             letters.append(token)
         return " > ".join(letters)
 
     clear()
-    status_width = min(term_width() - 2, 112)
-    heavy = ctext("═" * status_width, Fore.CYAN, Style.BRIGHT)
-    center_line(heavy)
+    draw_divider("─")
 
     if target is None:
         proj_total = int(round(crr * overs)) if balls > 0 else overs * 8
@@ -1752,14 +1807,16 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
         proj_total = f"CHASE {runs_left} OFF {balls_left}"
 
     win_pct = win_estimate()
-    left = ctext(f"{batting_team.upper():<14} {score}/{wickets} ({cur_ov}.{cur_bl} ov)", Fore.WHITE, Style.BRIGHT)
-    mid = ctext(f"[ INNINGS {innings_num} ]", Fore.CYAN, Style.BRIGHT)
+    left = ctext(f"{batting_team[:3].upper()} {score}-{wickets} ({cur_ov}.{cur_bl})", Fore.CYAN, Style.BRIGHT)
+    mid = ctext(f"RR: {crr:.2f}", Fore.WHITE, Style.BRIGHT)
     if target is None:
-        right = ctext(f"PROJ.TOTAL: {proj_total:<4} | WIN%: {win_pct:>2}%", Fore.YELLOW, Style.BRIGHT)
+        right = ctext(f"PHASE: {('POWERPLAY' if (balls/total if total else 0) <= 0.33 else 'MIDDLE/DEATH')}", Fore.WHITE, Style.BRIGHT)
     else:
-        right = ctext(f"REQ.RR: {req_rr:>4.2f} | WIN%: {win_pct:>2}%", Fore.YELLOW, Style.BRIGHT)
-    center_line(pad_visible(left, 34) + pad_visible(mid, 22) + pad_visible(right, 46))
-    center_line(heavy)
+        balls_left = max(0, total - balls)
+        runs_left = max(0, target - score)
+        right = ctext(f"TGT: {target} ({runs_left} off {balls_left})", Fore.WHITE, Style.BRIGHT)
+    center_line(pad_visible(left, 24) + "  •  " + pad_visible(mid, 14) + "  •  " + pad_visible(right, 34))
+    draw_divider("─")
 
     s_r  = batter_runs.get(striker, 0)
     s_b  = batter_balls.get(striker, 0)
@@ -1778,6 +1835,7 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
             over_runs += int(sym)
         elif sym in ("wd", "nb"):
             over_runs += 1
+    over_sym = " ".join(over_log) if over_log else "-"
     momentum_val = max(0, min(100, int(partnership_runs * 2 + over_runs * 8 + (10 - wickets) * 3)))
     momentum_txt = "STEADY"
     if momentum_val >= 70:
@@ -1793,39 +1851,38 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
 
     if user_is_batting:
         left_panel = [
+            ctext(f"{short(lineup[striker])}* {s_r:>3} ({s_b:02d})", Fore.WHITE, Style.BRIGHT),
+            ctext(f"{short(lineup[non_striker])}  {ns_r:>3} ({ns_b:02d})", Fore.WHITE, Style.DIM),
             "",
-            ctext("BOWLER INTENT", Fore.CYAN, Style.BRIGHT),
-            ctext(f"Plan: {plan['name']}  [{plan_key}]", Fore.YELLOW, Style.BRIGHT),
-            ctext(plan["hint"], Fore.WHITE),
-            "",
-            ctext("YOUR TARGETING", Fore.CYAN, Style.BRIGHT),
-            ctext(f"Zone: {selected_zone} - {FIELD_ZONES.get(selected_zone, 'Straight')}", Fore.WHITE),
-            ctext("Pick shot first, then time with SPACE", Fore.WHITE, Style.DIM),
+            ctext(f"PARTNER:   {partnership_runs:>3}", Fore.WHITE),
+            ctext(f"LAST OVR:  {over_sym}", Fore.WHITE),
         ]
     else:
         left_panel = [
+            ctext(f"{short(current_bowler)}  {bow_runs}-{bow_wkts} ({bow_ov})", Fore.WHITE, Style.BRIGHT),
+            ctext(f"PLAN: {plan['name']} [{plan_key}]", Fore.CYAN, Style.BRIGHT),
             "",
-            ctext("BOWLING INTENT", Fore.CYAN, Style.BRIGHT),
-            ctext(f"Selected: {plan['name']}  [{plan_key}]", Fore.YELLOW, Style.BRIGHT),
-            ctext(plan["hint"], Fore.WHITE),
-            "",
-            ctext("LENGTH OPTIONS", Fore.CYAN, Style.BRIGHT),
-            ctext("1 Normal | 2 Short | 3 Full", Fore.WHITE),
-            ctext("4 Yorker | 5 Wide", Fore.WHITE),
+            ctext(f"HINT: {plan['hint']}", Fore.WHITE),
+            ctext(f"LAST OVR: {over_sym}", Fore.WHITE),
         ]
 
+    focus_zone = selected_zone if selected_zone in FIELD_ZONES else "5"
+    def zfmt(z):
+        if z == focus_zone:
+            return ctext(f"▶[ {z} ]◀", Fore.CYAN, Style.BRIGHT)
+        return ctext(f"({z})", Fore.WHITE, Style.DIM)
+
     right_panel = [
-        "",
-        ctext(f"STRIKER:   {short(lineup[striker]):<16} {s_r} ({s_b})", Fore.YELLOW, Style.BRIGHT),
-        ctext(f"NON-STR:   {short(lineup[non_striker]):<16} {ns_r} ({ns_b})", Fore.WHITE),
-        ctext("----------------------------------------------", Fore.CYAN),
-        ctext(f"TIMING: [ {timing_label} ]", timing_color, Style.BRIGHT),
-        ctext(f"SCALE: {timing_scale(timing_label)}", Fore.WHITE),
-        ctext(f"MOMENTUM: {progress_bar(momentum_val, 100, 12)} {momentum_txt}", Fore.CYAN, Style.BRIGHT),
-        ctext(f"NOTE: {timing_note}", Fore.WHITE),
+        "   " + zfmt("3") + "    \\   /    " + zfmt("1"),
+        "   " + zfmt("9") + "     \\ /     " + zfmt("2"),
+        "   " + zfmt("8") + " ─── [ PITCH ] ─── " + zfmt("6"),
+        "   " + zfmt("7") + "     / \\     " + zfmt("4"),
+        "            " + zfmt("5"),
     ]
 
-    draw_dual_panels("BOWLING PLAN", left_panel, "BATTING HUD", right_panel)
+    draw_dual_panels("BATSMAN" if user_is_batting else "BOWLER", left_panel,
+                     "FIELD RADAR" if user_is_batting else "FIELD TACTICS", right_panel,
+                     panel_width=min(44, max(34, (term_width() - 8) // 2)))
 
     phase = "POWERPLAY"
     pno = balls // 6 + 1
@@ -1834,7 +1891,6 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
     if total and (balls / total) > 0.80:
         phase = "DEATH"
 
-    over_sym = " ".join(over_log) if over_log else "-"
     spin_tag = int(round(PITCH_TYPES.get(pitch, {}).get("spin_mod", 0) * 20))
     swing_tag = int(round(WEATHER_CONDITIONS.get(weather, {}).get("swing_mod", 0) * 10))
 
@@ -1852,7 +1908,27 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
         ctext(f"BOWLER:  {short(current_bowler)} ({bow_ov}, {bow_runs}-{bow_wkts})", Fore.WHITE),
     ]
 
-    draw_dual_panels("MATCH TACTICS", bottom_left, "CONDITIONS", bottom_right)
+    gap_open = zone_gap_state(field_setup, focus_zone)
+    gap_text = ctext("WIDELY OPEN (+15% RUNS)", Fore.GREEN, Style.BRIGHT) if gap_open else ctext("GUARDED (HIGH CATCH RISK)", Fore.RED, Style.BRIGHT)
+    shot_type = "LOFT" if loft_mode else "FRONT-FOOT"
+    power_meter = progress_bar(aggression_level, 5, 12)
+
+    action_left = [
+        ctext(f"POWER: {power_meter} {'AGGRESSIVE' if aggression_level >= 4 else 'CONTROLLED'}", Fore.WHITE),
+        ctext(f"TYPE:  {shot_type}", Fore.WHITE),
+    ]
+    action_right = [
+        ctext(f"AIM:  ({focus_zone}) {FIELD_ZONES.get(focus_zone, 'Straight').upper()}", Fore.WHITE),
+        ctext(f"GAP:  {gap_text}", Fore.WHITE),
+    ]
+    draw_dual_panels("SHOT SELECT", action_left, "EXECUTION", action_right,
+                     panel_width=min(44, max(34, (term_width() - 8) // 2)))
+
+    center_line(ctext(f"TIMING: {progress_bar(int(max(1, min(10, timing_quality * 10))), 10, 10)}", THEME_TEXT, Style.BRIGHT))
+    if timing_label == "PERFECT":
+        center_line(ctext("> PERFECT <", Fore.CYAN, Style.BRIGHT))
+    else:
+        center_line(ctext(f"> {timing_label} <", timing_color, Style.BRIGHT))
 
     if free_hit:
         center_line(ctext("ALERT: FREE HIT", Fore.RED, Style.BRIGHT))
@@ -1973,6 +2049,8 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
     timing_grade     = "-"
     timing_quality   = 1.0
     bowling_zone     = "1"
+    aggression_level = 3
+    loft_mode        = False
 
     def ensure_bowler(name):
         if name not in bowler_stats:
@@ -1999,15 +2077,15 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
             batter_runs, batter_balls, current_bowler, bowler_stats,
             over_log, partnership_runs, pitch, weather, difficulty, personality,
             field_setup, selected_zone, timing_grade, timing_quality,
-            bowling_zone, target, free_hit, user_is_batting
+            bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
         )
 
         # Show correct commands based on current bowler type
         b_type = get_stat(current_bowler, "bowl_type", "medium")
         center_line(ctext("━" * min(term_width() - 2, 112), Fore.CYAN, Style.BRIGHT))
         if user_is_batting:
-            center_line(ctext("COMMANDS: [A/←] DEFEND | [D/→] SWING | [W/↑] LOFT | [S/↓] LEAVE", Fore.WHITE, Style.BRIGHT))
-            center_line(ctext("ACTION  : Select Zone [1-9] -> Press [SPACE] to time your shot.", Fore.WHITE))
+            center_line(ctext("[W/A/S/D] AIM | [Q/E] AGGRESSION | [L] LOFT TOGGLE | [SPACE] TIME | [ESC]", Fore.WHITE, Style.BRIGHT))
+            center_line(ctext("Diagonals: WD=3, WA=7, SD=1, SA=6 | Arrow keys also supported", Fore.WHITE))
             center_line(ctext(f"BOWLER PLAN: {BOWLING_PLANS.get(bowling_zone, BOWLING_PLANS['1'])['name']}", Fore.CYAN, Style.BRIGHT))
         else:
             if b_type == "spin":
@@ -2028,12 +2106,73 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
                 if k == "ESC":
                     pause_game()
                     continue
-                if   k in ("D", "RIGHT"): shot = "SWING"
-                elif k in ("A", "LEFT"):  shot = "DEFEND"
-                elif k in ("W", "UP", "L"):    shot = "LOFT"
-                elif k in ("S", "DOWN", "Q"):  shot = "LEAVE"
+                if k == "Q":
+                    aggression_level = max(1, aggression_level - 1)
+                    render_play_screen(
+                        batting_team, bowling_team, score, wickets, overs, balls,
+                        innings_num, lineup, striker, non_striker,
+                        batter_runs, batter_balls, current_bowler, bowler_stats,
+                        over_log, partnership_runs, pitch, weather, difficulty, personality,
+                        field_setup, selected_zone, timing_grade, timing_quality,
+                        bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
+                    )
+                    continue
+                if k == "E":
+                    aggression_level = min(5, aggression_level + 1)
+                    render_play_screen(
+                        batting_team, bowling_team, score, wickets, overs, balls,
+                        innings_num, lineup, striker, non_striker,
+                        batter_runs, batter_balls, current_bowler, bowler_stats,
+                        over_log, partnership_runs, pitch, weather, difficulty, personality,
+                        field_setup, selected_zone, timing_grade, timing_quality,
+                        bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
+                    )
+                    continue
+                if k in ("L",):
+                    loft_mode = not loft_mode
+                    render_play_screen(
+                        batting_team, bowling_team, score, wickets, overs, balls,
+                        innings_num, lineup, striker, non_striker,
+                        batter_runs, batter_balls, current_bowler, bowler_stats,
+                        over_log, partnership_runs, pitch, weather, difficulty, personality,
+                        field_setup, selected_zone, timing_grade, timing_quality,
+                        bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
+                    )
+                    continue
 
-            selected_zone = choose_target_zone(field_setup)
+                if k in ("W", "A", "S", "D"):
+                    k2 = poll_key_nonblocking()
+                    aim = aim_from_input(k, k2)
+                    if aim:
+                        selected_zone = aim
+                        render_play_screen(
+                            batting_team, bowling_team, score, wickets, overs, balls,
+                            innings_num, lineup, striker, non_striker,
+                            batter_runs, batter_balls, current_bowler, bowler_stats,
+                            over_log, partnership_runs, pitch, weather, difficulty, personality,
+                            field_setup, selected_zone, timing_grade, timing_quality,
+                            bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
+                        )
+                    continue
+
+                if k in ("UP", "DOWN", "LEFT", "RIGHT"):
+                    aim = aim_from_input(k)
+                    if aim:
+                        selected_zone = aim
+                        render_play_screen(
+                            batting_team, bowling_team, score, wickets, overs, balls,
+                            innings_num, lineup, striker, non_striker,
+                            batter_runs, batter_balls, current_bowler, bowler_stats,
+                            over_log, partnership_runs, pitch, weather, difficulty, personality,
+                            field_setup, selected_zone, timing_grade, timing_quality,
+                            bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
+                        )
+                    continue
+
+                if k == "SPACE":
+                    shot = "LOFT" if loft_mode else ("SWING" if aggression_level >= 4 else "DEFEND")
+                elif k in FIELD_ZONES:
+                    selected_zone = k
 
             # Computer bowler picks delivery based on their type
             delivery = choose_ai_delivery(b_type, balls, total_balls, target, score, personality)
@@ -2067,7 +2206,10 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
 
         if user_is_batting:
             timing_grade, timing_quality = run_timing_challenge(
-                delivery, get_stat(lineup[striker], "bat_skill", 50), difficulty
+                delivery,
+                get_stat(lineup[striker], "bat_skill", 50),
+                difficulty,
+                get_stat(current_bowler, "bowl_skill", 75),
             )
             animate(f"  Timing: {timing_grade}")
 
@@ -2100,6 +2242,19 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
                 selected_zone, field_setup, lineup[striker], delivery,
                 balls, total_balls
             )
+            gap_open = zone_gap_state(field_setup, selected_zone)
+            if isinstance(result, int) and result > 0:
+                # Aggression affects conversion potential.
+                if aggression_level >= 4 and random.random() < 0.18:
+                    result = min(6, result + 1)
+                # Open gap reward
+                if gap_open and random.random() < 0.30:
+                    if result in (1, 2):
+                        result = min(4, result + 2)
+                # Guarded zones increase dismissal risk on mistimed attacks
+                if (not gap_open) and shot in ("SWING", "LOFT") and timing_grade in ("EARLY", "LATE", "MISS"):
+                    if random.random() < 0.16:
+                        result = "W"
         else:
             result = apply_bowling_zone_effect(result, delivery, bowling_zone, balls, total_balls)
 
