@@ -1997,10 +1997,13 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
                      action_right,
                      panel_width=min(44, max(34, (term_width() - 8) // 2)))
 
+    if user_is_batting:
+        center_line(ctext("RADAR: Use ARROWS to move zone, WASD/combos or [1-9] direct. ENTER/SPACE to play.", THEME_TEXT, Style.DIM))
+
     # Tier 4: footer
     draw_divider("─")
     if user_is_batting:
-        center_line(ctext("[W/A/S/D] AIM | [Q/E] AGGRESSION | [L] LOFT | [SPACE/ENTER] TIME | [ESC]", THEME_TEXT, Style.BRIGHT))
+        center_line(ctext("[ARROWS] MOVE AIM | [W/A/S/D or 1-9] AIM | [Q/E] AGGR | [L] LOFT | [SPACE/ENTER] PLAY | [ESC]", THEME_TEXT, Style.BRIGHT))
         if timing_label == "PERFECT":
             center_line(ctext("> PERFECT <", Fore.CYAN, Style.BRIGHT))
         else:
@@ -2243,17 +2246,15 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
                     continue
 
                 if k in ("UP", "DOWN", "LEFT", "RIGHT"):
-                    aim = aim_from_input(k)
-                    if aim:
-                        selected_zone = aim
-                        render_play_screen(
-                            batting_team, bowling_team, score, wickets, overs, balls,
-                            innings_num, lineup, striker, non_striker,
-                            batter_runs, batter_balls, current_bowler, bowler_stats,
-                            over_log, partnership_runs, pitch, weather, difficulty, personality,
-                            field_setup, selected_zone, timing_grade, timing_quality,
-                            bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
-                        )
+                    selected_zone = move_zone(selected_zone if selected_zone in FIELD_ZONES else "5", k)
+                    render_play_screen(
+                        batting_team, bowling_team, score, wickets, overs, balls,
+                        innings_num, lineup, striker, non_striker,
+                        batter_runs, batter_balls, current_bowler, bowler_stats,
+                        over_log, partnership_runs, pitch, weather, difficulty, personality,
+                        field_setup, selected_zone, timing_grade, timing_quality,
+                        bowling_zone, target, free_hit, user_is_batting, aggression_level, loft_mode
+                    )
                     continue
 
                 if k in ("SPACE", "ENTER"):
