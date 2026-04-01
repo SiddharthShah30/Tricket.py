@@ -560,6 +560,14 @@ FIELD_ZONES = {
     "9": "Long Off",
 }
 
+BOWLING_PLANS = {
+    "1": {"name": "Normal", "hint": "Back of a good length"},
+    "2": {"name": "Short",  "hint": "Chest-high pressure ball"},
+    "3": {"name": "Full",   "hint": "Drive-inviting fuller ball"},
+    "4": {"name": "Yorker", "hint": "Toe-crushing yorker lane"},
+    "5": {"name": "Wide",   "hint": "Outside-off tight line"},
+}
+
 ZONE_PROFILE = {
     "1": "off",
     "2": "off",
@@ -1080,6 +1088,29 @@ def choose_ai_delivery(bowler_type, balls, total_balls, target, score, personali
     return random.choices(["IN", "OUT", "YORKER", "BOUNCER"], [30, 30, 20, 20])[0]
 
 
+def choose_ai_bowling_plan(balls, total_balls, target, score):
+    progress = balls / total_balls if total_balls else 0.0
+    death_phase = progress >= 0.8
+
+    if death_phase:
+        weights = [18, 15, 15, 40, 12]  # normal, short, full, yorker, wide
+    else:
+        weights = [38, 18, 24, 10, 10]
+
+    if target is not None:
+        balls_left = max(1, total_balls - balls)
+        runs_left = max(0, target - score)
+        req_rr = (runs_left * 6) / balls_left
+        if req_rr > 10:
+            # defend boundary more
+            weights = [20, 22, 14, 26, 18]
+        elif req_rr < 7:
+            # hunt wickets with fuller/yorker
+            weights = [24, 14, 28, 24, 10]
+
+    return random.choices(["1", "2", "3", "4", "5"], weights)[0]
+
+
 def tactical_insight(score, wickets, balls, total_balls, target, partnership_runs, over_log):
     progress = balls / total_balls if total_balls else 0
     if progress <= 0.33:
@@ -1183,15 +1214,23 @@ def choose_target_zone(field_setup):
 
 
 def choose_bowling_zone():
-    selected = "5"
+    selected = "1"
     while True:
         print_header("BOWLING PLAN")
-        draw_modern_field(selected_zone=selected)
+        opts = []
+        for key, info in BOWLING_PLANS.items():
+            pref = "[[" if key == selected else "  "
+            suff = "]]" if key == selected else "  "
+            opts.append(ctext(f"{pref} {key} {suff} {info['name']:<7} - {info['hint']}", THEME_ACCENT if key == selected else THEME_TEXT, Style.BRIGHT if key == selected else Style.DIM))
+        draw_center_box(opts, width=min(96, term_width() - 6), title="CHOOSE LENGTH")
         k = get_key()
-        if k in ("LEFT", "RIGHT", "UP", "DOWN"):
-            selected = move_zone(selected, k)
+        if k in ("UP", "W"):
+            selected = str(max(1, int(selected) - 1))
             continue
-        if k in FIELD_ZONES:
+        if k in ("DOWN", "S"):
+            selected = str(min(5, int(selected) + 1))
+            continue
+        if k in BOWLING_PLANS:
             selected = k
             continue
         if k == "ENTER":
@@ -1215,33 +1254,41 @@ def timing_feedback(grade, quality):
 def apply_bowling_zone_effect(result, delivery, zone, balls, total_balls):
     if not isinstance(result, (int, str)):
         return result
-
-    zone_kind = ZONE_PROFILE.get(zone, "straight")
+    plan = zone if zone in BOWLING_PLANS else "1"
     death_phase = (balls / total_balls) >= 0.8 if total_balls else False
 
-    # Outside/off-stump plans generally squeeze scoring and induce mistakes.
-    if zone_kind == "off":
-        if isinstance(result, int) and result >= 4 and random.random() < 0.35:
-            result = 2
-        if isinstance(result, int) and result in (1, 2) and random.random() < 0.18:
+    # 1 Normal: balanced discipline
+    if plan == "1":
+        if isinstance(result, int) and result in (1, 2) and random.random() < 0.15:
             result = 0
-        if result != "W" and random.random() < 0.06:
+
+    # 2 Short: extra wicket chance, but pulls can score
+    elif plan == "2":
+        if result != "W" and random.random() < 0.08:
             result = "W"
-
-    # Leg-side plans can leak boundaries if missed, especially in death.
-    elif zone_kind == "leg":
-        if isinstance(result, int) and result == 0 and random.random() < 0.20:
+        elif isinstance(result, int) and result == 0 and random.random() < 0.18:
             result = 1
-        if death_phase and isinstance(result, int) and result in (1, 2) and random.random() < 0.22:
-            result = min(4, result + 2)
 
-    # Straight plans are high-variance yorker channels in death overs.
+    # 3 Full: can induce drives and edges
+    elif plan == "3":
+        if result != "W" and random.random() < 0.07:
+            result = "W"
+        elif isinstance(result, int) and result == 2 and random.random() < 0.22:
+            result = 4
+
+    # 4 Yorker: strongest in death, suppresses runs
+    elif plan == "4":
+        if result != "W" and random.random() < (0.12 if death_phase else 0.08):
+            result = "W"
+        elif isinstance(result, int) and result >= 2 and random.random() < 0.45:
+            result = 1
+
+    # 5 Wide line: cuts boundaries, higher single/dot pattern
     else:
-        if delivery == "YORKER" and death_phase:
-            if result != "W" and random.random() < 0.10:
-                result = "W"
-            elif isinstance(result, int) and result >= 2 and random.random() < 0.30:
-                result = 1
+        if isinstance(result, int) and result >= 4 and random.random() < 0.42:
+            result = 2
+        elif isinstance(result, int) and result == 1 and random.random() < 0.25:
+            result = 0
 
     return result
 
@@ -1691,11 +1738,6 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
             letters.append(token)
         return " > ".join(letters)
 
-    def radar_line(zid, label, focus):
-        if zid == focus:
-            return ctext(f"({zid}) > {label} <", Fore.YELLOW, Style.BRIGHT)
-        return ctext(f"({zid}) {label}", Fore.WHITE)
-
     clear()
     status_width = min(term_width() - 2, 112)
     heavy = ctext("═" * status_width, Fore.CYAN, Style.BRIGHT)
@@ -1746,19 +1788,31 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
     timing_label, timing_note = timing_feedback(timing_grade, timing_quality)
     timing_color = Fore.RED if timing_label in ("MISS", "BAD") else (Fore.GREEN if timing_label == "PERFECT" else Fore.CYAN)
 
-    focus_zone = selected_zone if user_is_batting else bowling_zone
-    if focus_zone not in FIELD_ZONES:
-        focus_zone = "5"
+    plan_key = bowling_zone if bowling_zone in BOWLING_PLANS else "1"
+    plan = BOWLING_PLANS.get(plan_key, BOWLING_PLANS["1"])
 
-    left_panel = [
-        "",
-        "            " + radar_line("3", "Mid-Off", focus_zone) + "     " + radar_line("2", "Cover", focus_zone),
-        "  " + radar_line("9", "Lng-Off", focus_zone) + "        \\        /   " + radar_line("1", "3rd", focus_zone),
-        "  " + radar_line("8", "Lng-On", focus_zone) + "  --- [ P I T C H ] ---  " + radar_line("6", "Fine", focus_zone),
-        "  " + radar_line("7", "Mid-On", focus_zone) + "         /      \\   " + radar_line("4", "Mid-Wkt", focus_zone),
-        "                     " + radar_line("5", "STRAIGHT", focus_zone),
-        "",
-    ]
+    if user_is_batting:
+        left_panel = [
+            "",
+            ctext("BOWLER INTENT", Fore.CYAN, Style.BRIGHT),
+            ctext(f"Plan: {plan['name']}  [{plan_key}]", Fore.YELLOW, Style.BRIGHT),
+            ctext(plan["hint"], Fore.WHITE),
+            "",
+            ctext("YOUR TARGETING", Fore.CYAN, Style.BRIGHT),
+            ctext(f"Zone: {selected_zone} - {FIELD_ZONES.get(selected_zone, 'Straight')}", Fore.WHITE),
+            ctext("Pick shot first, then time with SPACE", Fore.WHITE, Style.DIM),
+        ]
+    else:
+        left_panel = [
+            "",
+            ctext("BOWLING INTENT", Fore.CYAN, Style.BRIGHT),
+            ctext(f"Selected: {plan['name']}  [{plan_key}]", Fore.YELLOW, Style.BRIGHT),
+            ctext(plan["hint"], Fore.WHITE),
+            "",
+            ctext("LENGTH OPTIONS", Fore.CYAN, Style.BRIGHT),
+            ctext("1 Normal | 2 Short | 3 Full", Fore.WHITE),
+            ctext("4 Yorker | 5 Wide", Fore.WHITE),
+        ]
 
     right_panel = [
         "",
@@ -1771,7 +1825,7 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
         ctext(f"NOTE: {timing_note}", Fore.WHITE),
     ]
 
-    draw_dual_panels("TACTICAL RADAR", left_panel, "BATTING HUD", right_panel)
+    draw_dual_panels("BOWLING PLAN", left_panel, "BATTING HUD", right_panel)
 
     phase = "POWERPLAY"
     pno = balls // 6 + 1
@@ -1918,7 +1972,7 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
     selected_zone    = "5"
     timing_grade     = "-"
     timing_quality   = 1.0
-    bowling_zone     = "5"
+    bowling_zone     = "1"
 
     def ensure_bowler(name):
         if name not in bowler_stats:
@@ -1934,6 +1988,8 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
             break
 
         bst = bowler_stats[current_bowler]
+        if user_is_batting:
+            bowling_zone = choose_ai_bowling_plan(balls, total_balls, target, score)
         field_setup = (get_ai_field_setup(personality, balls, total_balls, wickets, target, score)
                    if user_is_batting else None)
 
@@ -1952,12 +2008,13 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
         if user_is_batting:
             center_line(ctext("COMMANDS: [A/←] DEFEND | [D/→] SWING | [W/↑] LOFT | [S/↓] LEAVE", Fore.WHITE, Style.BRIGHT))
             center_line(ctext("ACTION  : Select Zone [1-9] -> Press [SPACE] to time your shot.", Fore.WHITE))
+            center_line(ctext(f"BOWLER PLAN: {BOWLING_PLANS.get(bowling_zone, BOWLING_PLANS['1'])['name']}", Fore.CYAN, Style.BRIGHT))
         else:
             if b_type == "spin":
                 center_line(ctext("COMMANDS: [A/←] OFF-SPIN | [D/→] LEG-SPIN | [W/↑] FLIPPER | [S/↓] GOOGLY", Fore.WHITE, Style.BRIGHT))
             else:
                 center_line(ctext("COMMANDS: [A/←] IN-SWING | [D/→] OUT-SWING | [W/↑] YORKER | [S/↓] BOUNCER", Fore.WHITE, Style.BRIGHT))
-            center_line(ctext("ACTION  : Pick bowling zone and execute delivery.", Fore.WHITE))
+            center_line(ctext("ACTION  : Pick bowling plan (length) and execute delivery.", Fore.WHITE))
         center_line(ctext("SYSTEM: [ESC] Pause / Resume", Fore.WHITE))
         center_line(ctext("═" * min(term_width() - 2, 112), Fore.CYAN, Style.BRIGHT))
 
