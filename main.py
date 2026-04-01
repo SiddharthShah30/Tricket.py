@@ -1932,13 +1932,20 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
         ]
         focus_zone = selected_zone if selected_zone in FIELD_ZONES else "5"
         def zfmt(z):
-            return ctext(f"▶[ {z} ]◀", Fore.CYAN, Style.BRIGHT) if z == focus_zone else ctext(f"({z})", THEME_TEXT, Style.DIM)
+            return ctext(f"[{z}]", Fore.CYAN, Style.BRIGHT) if z == focus_zone else ctext(f"[{z}]", THEME_TEXT, Style.DIM)
+        facing_dir = ZONE_PROFILE.get(focus_zone, "straight")
+        if facing_dir == "off":
+            facing_arrow = "↗ OFF SIDE"
+        elif facing_dir == "leg":
+            facing_arrow = "↖ LEG SIDE"
+        else:
+            facing_arrow = "↑ STRAIGHT"
         right_lines = [
-            "   " + zfmt("3") + "    \\   /    " + zfmt("1"),
-            "   " + zfmt("9") + "     \\ /     " + zfmt("2"),
-            "   " + zfmt("8") + " ─── [ PITCH ] ─── " + zfmt("6"),
-            "   " + zfmt("7") + "     / \\     " + zfmt("4"),
-            "            " + zfmt("5"),
+            "         " + zfmt("9") + "   " + zfmt("3") + "   " + zfmt("1"),
+            "         " + zfmt("8") + "   " + zfmt("5") + "   " + zfmt("2"),
+            "         " + zfmt("7") + "   " + zfmt("6") + "   " + zfmt("4"),
+            ctext("            BATTER @ CREASE", THEME_TEXT),
+            ctext(f"            FACING {facing_arrow}", Fore.CYAN, Style.BRIGHT),
         ]
         left_title, right_title = "BATSMAN", "FIELD RADAR"
     else:
