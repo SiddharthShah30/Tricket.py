@@ -34,10 +34,23 @@ def info_text(text):
     return ctext(text, Fore.YELLOW, Style.BRIGHT)
 
 def term_width():
-    return max(88, shutil.get_terminal_size((108, 36)).columns)
+    return max(60, shutil.get_terminal_size((108, 36)).columns)
 
 def term_height():
-    return max(30, shutil.get_terminal_size((108, 36)).lines)
+    return max(20, shutil.get_terminal_size((108, 36)).lines)
+
+THEME_ACCENT = Fore.RED
+THEME_TEXT = Fore.WHITE
+
+def ui_profile():
+    cols = term_width()
+    lines = term_height()
+    compact = cols < 120 or lines < 34
+    return {
+        "cols": cols,
+        "lines": lines,
+        "compact": compact,
+    }
 
 def center_line(line):
     width = term_width()
@@ -82,8 +95,8 @@ def normalize_terminal_viewport(min_cols=110, min_lines=34):
     """Only enlarge very small Windows terminals; avoid hard-locking user size."""
     if os.name != "nt":
         return
-    cols = term_width()
-    lines = term_height()
+    cols = shutil.get_terminal_size((108, 36)).columns
+    lines = shutil.get_terminal_size((108, 36)).lines
     if cols < min_cols or lines < min_lines:
         os.system(f"mode con: cols={max(cols, min_cols)} lines={max(lines, min_lines)}")
 
@@ -117,18 +130,27 @@ def draw_dual_panels(left_title, left_lines, right_title, right_lines, panel_wid
 
     center_line(bot + sep + bot)
 
+HEADER_BIG = [
+    "████████╗██████╗ ██╗██╗  ██╗███████╗████████╗",
+    "╚══██╔══╝██╔══██╗██║██║ ██╔╝██╔════╝╚══██╔══╝",
+    "   ██║   ██████╔╝██║█████╔╝ █████╗     ██║   ",
+    "   ██║   ██╔══██╗██║██╔═██╗ ██╔══╝     ██║   ",
+    "   ██║   ██║  ██║██║██║  ██╗███████╗   ██║   ",
+    "   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚══════╝   ╚═╝   ",
+]
+
 def print_header(subtitle="RETRO ARCADE CRICKET"):
     clear()
-    center_line(ctext("████████╗██████╗ ██╗██╗  ██╗███████╗████████╗", Fore.CYAN, Style.BRIGHT))
-    center_line(ctext("╚══██╔══╝██╔══██╗██║██║ ██╔╝██╔════╝╚══██╔══╝", Fore.CYAN, Style.BRIGHT))
-    center_line(ctext("   ██║   ██████╔╝██║█████╔╝ █████╗     ██║   ", Fore.CYAN, Style.BRIGHT))
-    center_line(ctext("   ██║   ██╔══██╗██║██╔═██╗ ██╔══╝     ██║   ", Fore.CYAN, Style.BRIGHT))
-    center_line(ctext("   ██║   ██║  ██║██║██║  ██╗███████╗   ██║   ", Fore.CYAN, Style.BRIGHT))
-    center_line(ctext("   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚══════╝   ╚═╝   ", Fore.CYAN, Style.BRIGHT))
-    center_line(ctext(f"{subtitle}", Fore.YELLOW, Style.BRIGHT))
+    profile = ui_profile()
+    if profile["compact"]:
+        center_line(ctext("TRIKET", THEME_ACCENT, Style.BRIGHT))
+    else:
+        for line in HEADER_BIG:
+            center_line(ctext(line, THEME_ACCENT, Style.BRIGHT))
+    center_line(ctext(f"{subtitle}", THEME_ACCENT, Style.BRIGHT))
     print()
 
-def draw_ladder_screen(title, options, selected_idx, accent=Fore.YELLOW,
+def draw_ladder_screen(title, options, selected_idx, accent=THEME_ACCENT,
                        subtitle="-- RETRO ARCADE CRICKET --",
                        footer="[W/S] NAVIGATE  |  [ENTER] SELECT  |  [ESC] BACK"):
     print_header(title)
@@ -139,7 +161,7 @@ def draw_ladder_screen(title, options, selected_idx, accent=Fore.YELLOW,
         if selected:
             line = ctext(f"[[ {i:02d} ]] {opt}", accent, Style.BRIGHT)
         else:
-            line = ctext(f"   {i:02d}   {opt}", Fore.WHITE, Style.DIM)
+            line = ctext(f"   {i:02d}   {opt}", THEME_TEXT, Style.DIM)
         center_line(line)
     print()
     center_line(ctext(footer, accent, Style.BRIGHT))
@@ -147,10 +169,10 @@ def draw_ladder_screen(title, options, selected_idx, accent=Fore.YELLOW,
 def arrow_menu(title, options, hint="Use UP/DOWN and ENTER"):
     idx = 0
     while True:
-        draw_ladder_screen(title, options, idx, accent=Fore.YELLOW,
+        draw_ladder_screen(title, options, idx, accent=THEME_ACCENT,
                            subtitle="-- SELECTION --",
                            footer="[W/S] NAVIGATE  |  [ENTER] SELECT  |  [ESC] BACK")
-        center_line(ctext(hint, Fore.WHITE, Style.DIM))
+        center_line(ctext(hint, THEME_TEXT, Style.DIM))
         k = get_key()
         if k in ("UP", "W"):
             idx = (idx - 1) % len(options)
@@ -161,54 +183,38 @@ def arrow_menu(title, options, hint="Use UP/DOWN and ENTER"):
 
 def draw_main_menu_screen(selected_idx, settings_preview=None):
     clear()
-    logo_lines = [
-        "████████╗██████╗ ██╗██╗  ██╗███████╗████████╗",
-        "╚══██╔══╝██╔══██╗██║██║ ██╔╝██╔════╝╚══██╔══╝",
-        "   ██║   ██████╔╝██║█████╔╝ █████╗     ██║   ",
-        "   ██║   ██╔══██╗██║██╔═██╗ ██╔══╝     ██║   ",
-        "   ██║   ██║  ██║██║██║  ██╗███████╗   ██║   ",
-        "   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚══════╝   ╚═╝   ",
-    ]
+    profile = ui_profile()
+    logo_lines = HEADER_BIG if not profile["compact"] else ["TRIKET"]
 
-    used_lines = 0
+    content_lines = 1 + len(logo_lines) + 1 + 1 + 1 + 4 + 1 + (2 if settings_preview else 0) + 1
+    top_pad = max(0, (profile["lines"] - content_lines) // 3)
+    for _ in range(top_pad):
+        print()
+
     print()
-    used_lines += 1
     for line in logo_lines:
-        center_line(ctext(line, Fore.RED, Style.BRIGHT))
-        used_lines += 1
+        center_line(ctext(line, THEME_ACCENT, Style.BRIGHT))
     print()
-    used_lines += 1
 
     anchor = "──── RETRO ARCADE CRICKET ────"
-    center_line(ctext(anchor, Fore.RED, Style.BRIGHT))
+    center_line(ctext(anchor, THEME_ACCENT, Style.BRIGHT))
     print("\n")
-    used_lines += 2
 
     options = ["QUICK MATCH", "RECORDS", "SETTINGS", "QUIT GAME"]
     for i, label in enumerate(options, 1):
         selected = (i - 1) == selected_idx
         if selected:
-            pointer = ctext("\033[5m[[\033[0m", Fore.RED, Style.BRIGHT) + \
-                      ctext(f" {i:02d} ", Fore.WHITE, Style.BRIGHT) + \
-                      ctext("\033[5m]]\033[0m", Fore.RED, Style.BRIGHT)
-            item = pointer + " " + ctext(label, Fore.RED, Style.BRIGHT)
+            item = ctext(f"[[ {i:02d} ]] {label}", THEME_ACCENT, Style.BRIGHT)
         else:
-            item = ctext(f"   {i:02d}   {label}", Fore.WHITE, Style.DIM)
+            item = ctext(f"   {i:02d}   {label}", THEME_TEXT, Style.DIM)
         center_line(item)
-        used_lines += 1
 
     print("\n")
-    used_lines += 2
     if settings_preview:
-        center_line(ctext(f"CURRENT: {settings_preview}", Fore.RED, Style.DIM))
-        print()
-        used_lines += 2
-
-    footer = ctext("[W/S] NAVIGATE  |  [ENTER] EXECUTE  |  [ESC] SYSTEM", Fore.RED, Style.BRIGHT)
-    remaining = term_height() - used_lines - 2
-    for _ in range(max(0, remaining)):
+        center_line(ctext(f"CURRENT: {settings_preview}", THEME_TEXT, Style.DIM))
         print()
 
+    footer = ctext("[W/S] NAVIGATE  |  [ENTER] EXECUTE  |  [ESC] SYSTEM", THEME_ACCENT, Style.BRIGHT)
     center_line(footer)
 
 TEAM_SELECT_HEADER_LINES = [
@@ -227,32 +233,30 @@ def draw_ascii_header(lines, color=Fore.CYAN, fixed_height=6):
 
 def draw_team_select_screen(selected_idx, teams):
     clear()
-    used_lines = 0
-    print()
-    used_lines += 1
+    profile = ui_profile()
+    header_lines = TEAM_SELECT_HEADER_LINES if (not profile["compact"] and profile["cols"] >= 120) else ["TEAM SELECT"]
+    content_lines = 1 + len(header_lines) + 1 + 1 + 1 + len(teams) + 1 + 1
+    top_pad = max(0, (profile["lines"] - content_lines) // 3)
+    for _ in range(top_pad):
+        print()
 
-    draw_ascii_header(TEAM_SELECT_HEADER_LINES, color=Fore.YELLOW, fixed_height=6)
-    used_lines += 6
+    print()
+    draw_ascii_header(header_lines, color=THEME_ACCENT, fixed_height=len(header_lines))
 
     print()
-    used_lines += 1
-    center_line(ctext("── ASSEMBLE YOUR SQUAD ──", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("── ASSEMBLE YOUR SQUAD ──", THEME_ACCENT, Style.BRIGHT))
     print("\n")
-    used_lines += 2
 
     for i, team in enumerate(teams, 1):
         selected = (i - 1) == selected_idx
         if selected:
-            line = ctext(f"[[ {i:02d} ]] {team.upper()}", Fore.YELLOW, Style.BRIGHT)
+            line = ctext(f"[[ {i:02d} ]] {team.upper()}", THEME_ACCENT, Style.BRIGHT)
         else:
-            line = ctext(f"   {i:02d}   {team.upper()}", Fore.WHITE, Style.DIM)
+            line = ctext(f"   {i:02d}   {team.upper()}", THEME_TEXT, Style.DIM)
         center_line(line)
-        used_lines += 1
 
-    footer = ctext("[TRIKET // v2.6]  [W/S] NAVIGATE   |   [ENTER] SELECT   |   [ESC] BACK", Fore.YELLOW, Style.BRIGHT)
-    remaining = term_height() - used_lines - 2
-    for _ in range(max(0, remaining)):
-        print()
+    footer = ctext("[TRIKET // v2.6]  [W/S] NAVIGATE   |   [ENTER] SELECT   |   [ESC] BACK", THEME_ACCENT, Style.BRIGHT)
+    print()
     center_line(footer)
 
 ZONE_GRID = [
@@ -1323,21 +1327,21 @@ def main_menu(settings_preview="5 OVERS | NORMAL | BALANCED"):
 
 def show_records(history, stats):
     print_header("RECORDS")
-    center_line(ctext("-- CAREER LOGBOOK --", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("-- CAREER LOGBOOK --", THEME_ACCENT, Style.BRIGHT))
     print()
     if history:
-        center_line(ctext("RECENT MATCHES", Fore.YELLOW, Style.BRIGHT))
+        center_line(ctext("RECENT MATCHES", THEME_ACCENT, Style.BRIGHT))
         for i, rec in enumerate(history[-10:], 1):
-            center_line(ctext(f"{i:>2}. {rec}", Fore.WHITE))
+            center_line(ctext(f"{i:>2}. {rec}", THEME_TEXT))
     else:
         center_line(ctext("No match records yet. Play a game first!", Fore.RED, Style.BRIGHT))
 
     print()
-    center_line(ctext("CAREER SNAPSHOT", Fore.YELLOW, Style.BRIGHT))
-    center_line(ctext(f"Matches {stats.get('matches', 0)} | Wins {stats.get('user_wins', 0)} | Losses {stats.get('user_losses', 0)} | Ties {stats.get('ties', 0)}", Fore.WHITE))
-    center_line(ctext(f"Total Runs {stats.get('total_runs', 0)} | Total Wickets {stats.get('total_wickets', 0)} | Highest Match Total {stats.get('highest_match_total', 0)}", Fore.WHITE))
+    center_line(ctext("CAREER SNAPSHOT", THEME_ACCENT, Style.BRIGHT))
+    center_line(ctext(f"Matches {stats.get('matches', 0)} | Wins {stats.get('user_wins', 0)} | Losses {stats.get('user_losses', 0)} | Ties {stats.get('ties', 0)}", THEME_TEXT))
+    center_line(ctext(f"Total Runs {stats.get('total_runs', 0)} | Total Wickets {stats.get('total_wickets', 0)} | Highest Match Total {stats.get('highest_match_total', 0)}", THEME_TEXT))
     print()
-    center_line(ctext("[TRIKET // v2.6]  [ENTER] BACK", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("[TRIKET // v2.6]  [ENTER] BACK", THEME_ACCENT, Style.BRIGHT))
     safe_input("", "")
 
 
@@ -1345,10 +1349,10 @@ def choose_match_settings():
     while True:
         try:
             print_header("MATCH SETTINGS")
-            center_line(ctext("Type total overs for the innings (1 to 50)", Fore.YELLOW, Style.BRIGHT))
-            center_line(ctext("Recommended: 5, 10, 20", Fore.MAGENTA))
+            center_line(ctext("Type total overs for the innings (1 to 50)", THEME_ACCENT, Style.BRIGHT))
+            center_line(ctext("Recommended: 5, 10, 20", THEME_TEXT, Style.DIM))
             print()
-            overs = int(safe_input(ctext("  >> OVERS: ", Fore.CYAN, Style.BRIGHT), "5"))
+            overs = int(safe_input(ctext("  >> OVERS: ", THEME_ACCENT, Style.BRIGHT), "5"))
             if 1 <= overs <= 50:
                 break
             center_line(error_text("Choose a value from 1 to 50."))
@@ -1428,15 +1432,15 @@ def setup_conditions():
     print_header("MATCH CONDITIONS")
     spin_tag = int(round(PITCH_TYPES.get(pitch, {}).get("spin_mod", 0) * 20))
     swing_tag = int(round(WEATHER_CONDITIONS.get(weather, {}).get("swing_mod", 0) * 10))
-    center_line(ctext("-- PRE-MATCH REPORT --", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("-- PRE-MATCH REPORT --", THEME_ACCENT, Style.BRIGHT))
     print()
-    center_line(ctext(f"PITCH   : {pitch.upper()} (SPIN {spin_tag:+d})", Fore.WHITE, Style.BRIGHT))
-    center_line(ctext(desc.get(pitch, ''), Fore.WHITE, Style.DIM))
+    center_line(ctext(f"PITCH   : {pitch.upper()} (SPIN {spin_tag:+d})", THEME_TEXT, Style.BRIGHT))
+    center_line(ctext(desc.get(pitch, ''), THEME_TEXT, Style.DIM))
     print()
-    center_line(ctext(f"WEATHER : {weather.upper()} (SWING {swing_tag:+d})", Fore.WHITE, Style.BRIGHT))
-    center_line(ctext(desc.get(weather, ''), Fore.WHITE, Style.DIM))
+    center_line(ctext(f"WEATHER : {weather.upper()} (SWING {swing_tag:+d})", THEME_TEXT, Style.BRIGHT))
+    center_line(ctext(desc.get(weather, ''), THEME_TEXT, Style.DIM))
     print()
-    center_line(ctext("[TRIKET // v2.6]", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("[TRIKET // v2.6]", THEME_ACCENT, Style.BRIGHT))
     pause(1.5)
     return pitch, weather
 
@@ -1450,24 +1454,24 @@ def toss(player, computer):
     user_call = "heads" if call_idx == 0 else "tails"
     result = random.choice(["heads","tails"])
     print_header("TOSS")
-    center_line(ctext("COIN FLIPS...", Fore.WHITE, Style.BRIGHT))
-    center_line(ctext(f"RESULT: {result.upper()}!", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("COIN FLIPS...", THEME_TEXT, Style.BRIGHT))
+    center_line(ctext(f"RESULT: {result.upper()}!", THEME_ACCENT, Style.BRIGHT))
     pause(0.8)
     if user_call == result:
         pick = arrow_menu("YOU WON THE TOSS", ["Bat First", "Bowl First"], hint="Choose innings plan")
         if pick == 0:
             print_header("TOSS RESULT")
-            center_line(ctext(f"{player.upper()} WILL BAT FIRST", Fore.YELLOW, Style.BRIGHT))
+            center_line(ctext(f"{player.upper()} WILL BAT FIRST", THEME_ACCENT, Style.BRIGHT))
             safe_input("\n>> PRESS [ENTER] TO CONTINUE...", "")
             return True
         print_header("TOSS RESULT")
-        center_line(ctext(f"{player.upper()} WILL BOWL FIRST", Fore.YELLOW, Style.BRIGHT))
+        center_line(ctext(f"{player.upper()} WILL BOWL FIRST", THEME_ACCENT, Style.BRIGHT))
         safe_input("\n>> PRESS [ENTER] TO CONTINUE...", "")
         return False
     else:
         comp = random.choice(["bat","bowl"])
         print_header("TOSS RESULT")
-        center_line(ctext(f"{computer.upper()} WON THE TOSS AND CHOSE TO {comp.upper()}", Fore.YELLOW, Style.BRIGHT))
+        center_line(ctext(f"{computer.upper()} WON THE TOSS AND CHOSE TO {comp.upper()}", THEME_ACCENT, Style.BRIGHT))
         safe_input("\n>> PRESS [ENTER] TO CONTINUE...", "")
         return comp != "bat"
 
@@ -1819,9 +1823,9 @@ def show_innings_summary(batting_team, score, wickets, balls,
     nb_cnt  = extras_detail.get("nb", 0)
     total_x = w_cnt + lb_cnt + nb_cnt
 
-    center_line(ctext(f"INNINGS COMPLETE: {batting_team.upper()}", Fore.YELLOW, Style.BRIGHT))
-    center_line(ctext(f"TOTAL: {score}/{wickets} ({ov_str} overs) | RUN RATE: {crr:.2f}", Fore.WHITE, Style.BRIGHT))
-    center_line(ctext(f"EXTRAS: {total_x} (w{w_cnt}, lb{lb_cnt}, nb{nb_cnt})", Fore.WHITE))
+    center_line(ctext(f"INNINGS COMPLETE: {batting_team.upper()}", THEME_ACCENT, Style.BRIGHT))
+    center_line(ctext(f"TOTAL: {score}/{wickets} ({ov_str} overs) | RUN RATE: {crr:.2f}", THEME_TEXT, Style.BRIGHT))
+    center_line(ctext(f"EXTRAS: {total_x} (w{w_cnt}, lb{lb_cnt}, nb{nb_cnt})", THEME_TEXT))
     print()
 
     bat_rows = []
@@ -1852,13 +1856,14 @@ def show_innings_summary(batting_team, score, wickets, balls,
     if not bowl_rows:
         bowl_rows.append("(no bowling figures)")
 
-    center_line(ctext("BATTING SUMMARY", Fore.YELLOW, Style.BRIGHT))
-    for row in bat_rows[:12]:
-        center_line(ctext(row, Fore.WHITE))
+    max_rows = 6 if term_height() < 34 else 10
+    center_line(ctext("BATTING SUMMARY", THEME_ACCENT, Style.BRIGHT))
+    for row in bat_rows[:max_rows]:
+        center_line(ctext(row, THEME_TEXT))
     print()
-    center_line(ctext("BOWLING SUMMARY", Fore.YELLOW, Style.BRIGHT))
-    for row in bowl_rows[:12]:
-        center_line(ctext(row, Fore.WHITE))
+    center_line(ctext("BOWLING SUMMARY", THEME_ACCENT, Style.BRIGHT))
+    for row in bowl_rows[:max_rows]:
+        center_line(ctext(row, THEME_TEXT))
     print()
 
     if is_first_innings:
@@ -2240,8 +2245,8 @@ def show_final_result(player_team, t1, s1, w1, b1,
         msg    = f"{t1} WIN BY {margin} RUN(S)"
         winner = t1
 
-    center_line(ctext("-- FINAL VERDICT --", Fore.YELLOW, Style.BRIGHT))
-    center_line(ctext(msg, Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("-- FINAL VERDICT --", THEME_ACCENT, Style.BRIGHT))
+    center_line(ctext(msg, THEME_ACCENT, Style.BRIGHT))
 
     rr1 = round((s1 / (b1 if b1 else 1)) * 6, 2)
     rr2 = round((s2 / (b2 if b2 else 1)) * 6, 2)
@@ -2290,23 +2295,23 @@ def show_final_result(player_team, t1, s1, w1, b1,
         right_rows.append(f"  {short(name):<18}  {wk}/{rns}")
 
     print()
-    center_line(ctext("FINAL RECAP", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("FINAL RECAP", THEME_ACCENT, Style.BRIGHT))
     for ln in recap_l:
-        center_line(ctext(ln, Fore.WHITE))
+        center_line(ctext(ln, THEME_TEXT))
     print()
-    center_line(ctext("PLAYER OF THE MATCH", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("PLAYER OF THE MATCH", THEME_ACCENT, Style.BRIGHT))
     for ln in potm_lines:
-        center_line(ctext(ln, Fore.WHITE))
+        center_line(ctext(ln, THEME_TEXT))
     print()
-    center_line(ctext("BATTING LEADERS", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("BATTING LEADERS", THEME_ACCENT, Style.BRIGHT))
     for ln in left_rows[:3]:
-        center_line(ctext(ln.strip(), Fore.WHITE))
+        center_line(ctext(ln.strip(), THEME_TEXT))
     print()
-    center_line(ctext("BOWLING LEADERS", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("BOWLING LEADERS", THEME_ACCENT, Style.BRIGHT))
     for ln in right_rows[:3]:
-        center_line(ctext(ln.strip(), Fore.WHITE))
+        center_line(ctext(ln.strip(), THEME_TEXT))
     print()
-    center_line(ctext("[R] REPLAY  |  [Q] MENU", Fore.YELLOW, Style.BRIGHT))
+    center_line(ctext("[R] REPLAY  |  [Q] MENU", THEME_ACCENT, Style.BRIGHT))
 
     history_result = "Match tied" if winner == "Tie" else f"{winner} won"
     history.append(
