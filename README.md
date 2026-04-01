@@ -15,15 +15,18 @@ The latest version features a complete retro TUI redesign across menus, moderniz
 - Red-ball themed retro menu UI with centered ladder navigation
 - Dedicated Team Select screen with large ASCII header and rhythmic [[ nn ]] selector
 - Consistent pre-match and post-match screen styling (records, conditions, toss, summaries, result)
+- Cleaner Match Start presentation with direct "WILL BAT FIRST" opener card
 - Real-time batting timing gauge (PERFECT, GOOD, EARLY/LATE, MISS)
-- Batting target-zone system (zones 1-9) with field-aware outcomes
-- Bowling plan zones (zones 1-9) with off/leg/straight tactical effects
+- Number-first batting field radar (zones 1-9) with facing indicator and gap awareness
+- Number-first bowling target grid (zones 1-9) unified with batting layout
+- Live bowling line/length + release feedback with numeric target lock-in
 - Delivery impact model for pace and spin variations
-- Match arena HUD with tactical radar, batting HUD, momentum bar, and conditions module
+- Match HUD with overs-left, projected score/required chase info, and win prediction
 - DRS flow for eligible dismissals with limited reviews
 - Free-hit, wide, and no-ball handling
 - Over-by-over logs and richer score HUD
 - Pause/resume support during live gameplay
+- Spacebar and Enter action handling stabilized for timing/release actions
 - Persistent records in records.json
 
 ---
@@ -78,30 +81,17 @@ Then:
 
 ### Batting
 
-- A or Left Arrow: Defend
-- D or Right Arrow: Swing
-- W or Up Arrow: Loft
-- S or Down Arrow: Leave
-- 1-9: Choose target zone
-- Space: Timing hit on the gauge
+- 1-9: Choose shot direction/target zone on the radar
+- Q / E: Decrease / increase aggression (power)
+- L: Toggle loft mode
+- Space or Enter: Play shot and lock timing
 - Esc: Pause
 
-### Bowling (pace)
+### Bowling
 
-- A or Left Arrow: In-swing
-- D or Right Arrow: Out-swing
-- W or Up Arrow: Yorker
-- S or Down Arrow: Bouncer
-- 1-9: Choose bowling zone
-- Esc: Pause
-
-### Bowling (spin)
-
-- A or Left Arrow: Off-spin
-- D or Right Arrow: Leg-spin
-- W or Up Arrow: Flipper
-- S or Down Arrow: Googly
-- 1-9: Choose bowling zone
+- 1-4: Choose bowling plan/type (Normal, Short, Full, Yorker)
+- 1-9 or Arrow Keys: Choose bowling target on the numeric target grid
+- Space or Enter: Start and lock release meter
 - Esc: Pause
 
 ### Menus
@@ -116,6 +106,7 @@ Then:
 
 - Timing challenge affects final ball outcome after base simulation.
 - Zone compatibility rewards matching shot type to target area.
+- Batting and bowling share a unified numeric 1-9 targeting model for consistency.
 - AI field setup adapts to personality, phase, wickets, and chase pressure.
 - Delivery type modifies wicket, run, and boundary tendencies.
 - Difficulty adjusts user and AI scoring/wicket balance.
