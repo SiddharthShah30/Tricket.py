@@ -2000,7 +2000,7 @@ def render_play_screen(batting_team, bowling_team, score, wickets, overs,
     # Tier 4: footer
     draw_divider("─")
     if user_is_batting:
-        center_line(ctext("[W/A/S/D] AIM | [Q/E] AGGRESSION | [L] LOFT | [SPACE] TIME | [ESC]", THEME_TEXT, Style.BRIGHT))
+        center_line(ctext("[W/A/S/D] AIM | [Q/E] AGGRESSION | [L] LOFT | [SPACE/ENTER] TIME | [ESC]", THEME_TEXT, Style.BRIGHT))
         if timing_label == "PERFECT":
             center_line(ctext("> PERFECT <", Fore.CYAN, Style.BRIGHT))
         else:
@@ -2256,7 +2256,7 @@ def play_innings(overs, batting_team, bowling_team, user_is_batting,
                         )
                     continue
 
-                if k == "SPACE":
+                if k in ("SPACE", "ENTER"):
                     shot = "LOFT" if loft_mode else ("SWING" if aggression_level >= 4 else "DEFEND")
                 elif k in FIELD_ZONES:
                     selected_zone = k
@@ -2647,6 +2647,8 @@ def main():
             menu_overs, menu_difficulty, menu_personality = choose_match_settings()
             continue
 
+        # Quick Match should always allow changing overs/difficulty/personality before start.
+        menu_overs, menu_difficulty, menu_personality = choose_match_settings()
         overs, difficulty, personality = menu_overs, menu_difficulty, menu_personality
 
         player, computer = choose_team()
