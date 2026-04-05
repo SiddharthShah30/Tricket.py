@@ -917,6 +917,22 @@ def poll_key_nonblocking():
     return None
 
 
+def flush_input_buffer():
+    if os.name == 'nt':
+        import msvcrt
+        while msvcrt.kbhit():
+            try:
+                msvcrt.getch()
+            except Exception:
+                break
+        return
+
+    # Best-effort drain for non-Windows terminals.
+    import select
+    while select.select([sys.stdin], [], [], 0)[0]:
+        sys.stdin.read(1)
+
+
 def grade_timing(delta):
     ad = abs(delta)
     if ad <= 0.045:
@@ -1035,10 +1051,14 @@ def run_release_meter(bowler_skill, difficulty):
     sweet_end = int(0.90 * bar_len)
     sweet_mid = (sweet_start + sweet_end) // 2
 
+    # Prevent stale/repeat keypress from auto-locking instantly.
+    flush_input_buffer()
+
     start = time.time()
     locked_pos = None
+    arm_lock_after = 0.12
 
-    center_line(ctext("RELEASE: Press [SPACE] again to lock", THEME_TEXT, Style.BRIGHT))
+    center_line(ctext("RELEASE: Press [SPACE/ENTER] to lock", THEME_TEXT, Style.BRIGHT))
     while True:
         elapsed = time.time() - start
         pos = min(bar_len - 1, int((elapsed / (1.2 / strict)) * (bar_len - 1)))
@@ -1050,15 +1070,20 @@ def run_release_meter(bowler_skill, difficulty):
                 chars.append("█")
             else:
                 chars.append("░")
-        center_line(ctext(f"[{''.join(chars)}]", THEME_TEXT, Style.BRIGHT))
+
+        line = f"[{''.join(chars)}]"
+        pad = max(0, (term_width() - len(line)) // 2)
+        print((" " * pad) + ctext(line, THEME_TEXT, Style.BRIGHT) + "\r", end="", flush=True)
 
         k = poll_key_nonblocking()
-        if k == "SPACE":
+        if k in ("SPACE", "ENTER") and elapsed >= arm_lock_after:
             locked_pos = pos
             break
         if pos >= bar_len - 1:
             break
         time.sleep(speed)
+
+    print()
 
     if locked_pos is None:
         return "MISS", 0.0, (1, 1)
